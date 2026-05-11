@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Filter } from "lucide-react";
 import { useAppContext } from "../../AppContext";
 import { exportToExcel } from "../../lib/excel";
+import { SUCURSALES } from "../../lib/constants";
 
 const Alertas: React.FC = () => {
   const { alerts } = useAppContext();
   const [filter, setFilter] = useState("Todas");
+  const [sucursalFilter, setSucursalFilter] = useState("TODAS");
   const [page, setPage] = useState(1);
   const itemsPerPage = 20;
 
@@ -18,11 +20,18 @@ const Alertas: React.FC = () => {
   }, [alerts]);
 
   const filteredAlerts = useMemo(() => {
-    if (filter === "Todas") return alerts;
-    if (filter === "Solo compras")
-      return alerts.filter((a) => a.tipo === "COMPRA");
-    return alerts.filter((a) => a.destino === filter);
-  }, [alerts, filter]);
+    let result = alerts;
+    if (filter === "Solo compras") {
+      result = result.filter((a) => a.tipo === "COMPRA");
+    } else if (filter !== "Todas") {
+      result = result.filter((a) => a.destino === filter);
+    }
+    
+    if (sucursalFilter !== "TODAS") {
+      result = result.filter(a => a.origen === sucursalFilter || a.destino === sucursalFilter);
+    }
+    return result;
+  }, [alerts, filter, sucursalFilter]);
 
   const totalPages = Math.max(
     1,
@@ -81,24 +90,38 @@ const Alertas: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#f8fafc]">
-      <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200">
-        <h2 className="text-lg font-bold text-slate-900">🔔 Alertas y Sugerencias</h2>
+      <header className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white border-b border-slate-200 gap-4">
+        <h2 className="text-lg font-bold text-slate-900 whitespace-nowrap">🔔 Alertas y Sugerencias</h2>
         
-        <div className="flex items-center gap-4">
-          <select
-            value={filter}
-            onChange={handleFilterChange}
-            className="bg-white border border-slate-300 rounded-lg py-2 pl-3 pr-8 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 shadow-sm"
-          >
-            <option value="Todas">Todas</option>
-            <option value="Solo compras">⚠️ Solo compras</option>
-            {destinations.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              value={filter}
+              onChange={handleFilterChange}
+              className="bg-white border border-slate-300 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 shadow-sm"
+            >
+              <option value="Todas">Todas (Tipos)</option>
+              <option value="Solo compras">⚠️ Compras</option>
+              <optgroup label="Destinos (Traspasos)">
+                {destinations.map(d => <option key={d} value={d}>Destino: {d}</option>)}
+              </optgroup>
+            </select>
+            
+            <select
+              value={sucursalFilter}
+              onChange={(e) => { setSucursalFilter(e.target.value); setPage(1); }}
+              className="bg-white border border-slate-300 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700 shadow-sm"
+            >
+              <option value="TODAS">Todas (Sucursales)</option>
+              {SUCURSALES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
 
           <button
             onClick={handleExport}
             disabled={totals.traspasos === 0}
-            className="flex items-center gap-2 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide"
+            className="flex items-center gap-2 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide ml-auto"
           >
             <Download className="w-4 h-4" /> Exportar para chofer
           </button>

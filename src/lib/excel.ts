@@ -30,90 +30,142 @@ export const processMasterFile = async (
         const wb = XLSX.read(data, { type: "binary" });
 
         let wsName = wb.SheetNames.find((n) =>
-          /todos|maestro|inventario/i.test(n)
+          /todos|rotacion|maestro|inventario/i.test(n)
         );
         if (!wsName) {
-          wsName =
-            wb.SheetNames.find((n) => !/leyenda|rotacion|detalle_meses/i.test(n)) ||
-            wb.SheetNames[0];
+          wsName = wb.SheetNames[0];
         }
 
-        const rawJson: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wsName]);
-        if (rawJson.length === 0) throw new Error("El archivo está vacío");
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { header: 1 }) as any[][];
+        if (rows.length < 2) throw new Error("El archivo está vacío o no tiene el formato esperado");
 
-        const rawColumns = Object.keys(rawJson[0]);
+        const header0 = rows[0] || [];
+        const header1 = rows[1] || [];
+
+        // Determine if it's MultiIndex by checking if row 1 has months like ENE, FEB, MAR
+        const isMultiIndex = header1.some(v => /^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)$/i.test(String(v || "").trim()));
+
+        let rawColumns: string[] = [];
+        let dataStartIndex = 1;
+
+        if (isMultiIndex) {
+            dataStartIndex = 2; // Data starts after row 1
+            let lastH0 = "";
+            for (let i = 0; i < Math.max(header0.length, header1.length); i++) {
+                const val0 = (header0[i] !== undefined && header0[i] !== null) ? String(header0[i]).trim() : "";
+                if (val0 !== "") lastH0 = val0;
+                
+                const val1 = (header1[i] !== undefined && header1[i] !== null) ? String(header1[i]).trim() : "";
+                
+                if (!val1 || val1.toLowerCase().includes('unnamed') || val1 === lastH0) {
+                    rawColumns.push(lastH0 || `COL_${i}`);
+                } else {
+                    rawColumns.push(`${lastH0}_${val1}`);
+                }
+            }
+        } else {
+            // Normal simple header
+            rawColumns = header0.map((v, i) => v ? String(v).trim() : `COL_${i}`);
+        }
+
+        let colClaveIdx = -1;
+        let colArtIdx = -1;
+        let colExistIdx = -1;
+
+        // Rename standard columns to avoid issues
+        rawColumns = rawColumns.map((c, i) => {
+           const low = c.toLowerCase();
+           if (colClaveIdx === -1 && (low.includes('códig') || low.includes('codig') || low.includes('cod') || low.includes('clave'))) {
+               colClaveIdx = i;
+               return 'Clave';
+           }
+           if (colArtIdx === -1 && (low.includes('artícul') || low.includes('articul') || low.includes('descrip'))) {
+               colArtIdx = i;
+               return 'Artículo';
+           }
+           if (colExistIdx === -1 && low.includes('exist')) {
+               colExistIdx = i;
+               return 'Exist';
+           }
+           return c;
+        });
+
+        const rawJson: any[] = [];
+        for (let r = dataStartIndex; r < rows.length; r++) {
+            const rowData = rows[r];
+            // Skip completely empty rows
+            if (!rowData || rowData.length === 0 || rowData.every(v => v === undefined || v === null || String(v).trim() === "")) continue;
+            
+            const obj: Record<string, any> = {};
+            for (let c = 0; c < rawColumns.length; c++) {
+                obj[rawColumns[c]] = rowData[c];
+            }
+            rawJson.push(obj);
+        }
 
         const processedList: MasterRow[] = [];
         const alerts: Alert[] = [];
 
-        // Dynamic keys detector to avoid strict column naming issues
-        const getColKey = (keys: string[], patterns: RegExp[]) =>
-          keys.find((k) => patterns.some((p) => p.test(String(k).toLowerCase())));
-
-        const colClave = getColKey(rawColumns, [
-          /clave/,
-          /codigo/,
-          /código/,
-          /sku/,
-          /cod/,
-        ]) || rawColumns[0];
-        const colArt = getColKey(rawColumns, [/art.culo/, /descripci.n/]);
-        const colExist = getColKey(rawColumns, [
-          /^exist$/,
-          /existe/,
-          /exis/,
-          /existencia/,
-        ]) || "Exist";
-
         const SUC_UP = SUCURSALES.map((s) => s.toUpperCase());
 
-        const isRotacionFile = rawColumns.some(c => c.toUpperCase().includes(' P1') || c.toUpperCase().includes(' P2') || /\s(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)/i.test(c));
-
         rawJson.forEach((row) => {
-          let clave = String(row[colClave] || "");
-          // Skip invalid rows (garbage mapping)
+          let clave = String(row["Clave"] || "");
           if (!clave || clave.trim() === "undefined" || clave.trim() === "" || clave.toLowerCase() === "clave")
             return;
 
           if (clave.endsWith(".0") && !isNaN(Number(clave.slice(0, -2))))
             clave = clave.slice(0, -2);
 
-          const articulo = colArt ? String(row[colArt] || "") : "Sin nombre";
+          const articulo = String(row["Artículo"] || "Sin nombre");
 
           const sucData: Record<string, number> = {};
           let groupDataBySucTotal: Record<string, number> = {};
           let totalGeneral = 0;
 
           rawColumns.forEach((key) => {
+            if (key === "Clave" || key === "Artículo" || key === "Exist") return;
+            
             const kUp = key.toUpperCase().trim();
-            const isSuc = SUC_UP.find((s) => kUp === s || kUp.startsWith(s + " "));
+            // In flattened mode, key could be "ABASTOS_ENE"
+            const isSuc = SUC_UP.find((s) => kUp === s || kUp.startsWith(s + "_") || kUp.startsWith(s + " "));
 
             if (isSuc) {
-              const cleanedVal = String(row[key] || "0").replace(/[^0-9.-]/g, "");
-              const v = parseFloat(cleanedVal) || 0;
-              sucData[key] = v;
-              groupDataBySucTotal[isSuc] = (groupDataBySucTotal[isSuc] || 0) + v;
-              totalGeneral += v;
+              const val = row[key];
+              if (val !== undefined && val !== null && String(val).trim() !== "") {
+                 const cleanedVal = String(val).replace(/[^0-9.-]/g, "");
+                 const v = parseFloat(cleanedVal) || 0;
+                 sucData[key] = v;
+                 groupDataBySucTotal[isSuc] = (groupDataBySucTotal[isSuc] || 0) + v;
+                 totalGeneral += v;
+              }
             }
           });
 
           let exist = 0;
-          if (row.hasOwnProperty(colExist)) {
-              exist = parseFloat(String(row[colExist] || "0").replace(/[^0-9.-]/g, "")) || 0;
+          if (row["Exist"] !== undefined && row["Exist"] !== null && String(row["Exist"]).trim() !== "") {
+              exist = parseFloat(String(row["Exist"]).replace(/[^0-9.-]/g, "")) || 0;
           } else {
               exist = totalGeneral;
           }
+
+          // Recreate raw object for visualization table with cleaned up structure
+          const visualRaw: Record<string, any> = {};
+          rawColumns.forEach(c => {
+             visualRaw[c] = row[c] ?? "";
+          });
+          visualRaw["Clave"] = clave;
+          visualRaw["Exist"] = exist;
 
           processedList.push({
             clave,
             articulo,
             exist,
             sucursales: sucData,
-            raw: row,
+            raw: visualRaw,
           });
 
           // Accurate Alerts Logic (like backend)
-          if (isRotacionFile || row.hasOwnProperty(colExist)) {
+          if (isMultiIndex || (row["Exist"] !== undefined && String(row["Exist"]).trim() !== "")) {
              // Rotacion mode:
              if (exist <= 0) {
                  alerts.push({ tipo: "COMPRA", producto: articulo, clave, origen: "PROVEEDOR", destino: "ABASTOS", cantidad: "REVISAR" });
@@ -148,7 +200,7 @@ export const processMasterFile = async (
                      destino: necesitados[0],
                      cantidad: 2
                  });
-             } else if (necesitados.length > 0 && donadores.length === 0 && totalGeneral < 5) {
+             } else if (necesitados.length > 0 && donadores.length === 0 && totalGeneral < STOCK_BAJO * SUCURSALES.length) {
                  alerts.push({
                      tipo: "COMPRA",
                      producto: articulo,
