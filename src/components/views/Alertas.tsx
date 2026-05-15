@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from "react";
-import { Download, Filter } from "lucide-react";
+import { Download, Filter, CloudUpload, Loader2 } from "lucide-react";
 import { useAppContext } from "../../AppContext";
 import { exportToExcel } from "../../lib/excel";
 import { SUCURSALES } from "../../lib/constants";
+import { toast } from "sonner";
+import { createTransferOrders } from "../../services/api";
 
 const Alertas: React.FC = () => {
   const { alerts } = useAppContext();
   const [filter, setFilter] = useState("Todas");
   const [sucursalFilter, setSucursalFilter] = useState("TODAS");
   const [page, setPage] = useState(1);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const itemsPerPage = 20;
 
   const destinations = useMemo(() => {
@@ -51,7 +54,7 @@ const Alertas: React.FC = () => {
   const handleExport = () => {
     const traspasos = alerts.filter((a) => a.tipo === "TRASPASO");
     if (traspasos.length === 0) {
-      alert("No hay traspasos para exportar.");
+      toast.error("No hay traspasos para exportar.");
       return;
     }
     
@@ -67,6 +70,31 @@ const Alertas: React.FC = () => {
        }));
 
     exportToExcel(exportData, "Traspasos_Sugeridos.xlsx");
+    toast.success("Excel generado correctamente");
+  };
+
+  const handleGenerateCloudOrders = async () => {
+    const traspasos = alerts.filter(a => a.tipo === "TRASPASO");
+    if (traspasos.length === 0) {
+      toast.error("No hay alertas de traspaso generadas.");
+      return;
+    }
+
+    setLoadingOrders(true);
+    const loadingToast = toast.loading("Generando órdenes de traspaso en la nube...");
+
+    try {
+      const response = await createTransferOrders(alerts);
+      if (response.success) {
+        toast.success(response.message || "Órdenes de traspaso generadas en la nube.", { id: loadingToast });
+      } else {
+        toast.error(response.error || "No se pudieron generar los traspasos.", { id: loadingToast });
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Error contactando la API", { id: loadingToast });
+    } finally {
+      setLoadingOrders(false);
+    }
   };
 
   const totals = useMemo(() => {
@@ -121,9 +149,21 @@ const Alertas: React.FC = () => {
           <button
             onClick={handleExport}
             disabled={totals.traspasos === 0}
-            className="flex items-center gap-2 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide ml-auto"
+            className="flex items-center gap-2 bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide ml-auto"
           >
-            <Download className="w-4 h-4" /> Exportar para chofer
+            <Download className="w-4 h-4" /> Exportar Local
+          </button>
+          
+          <button
+             onClick={handleGenerateCloudOrders}
+             disabled={totals.traspasos === 0 || loadingOrders}
+             className="flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide shadow-sm"
+          >
+            {loadingOrders ? (
+                <><Loader2 className="w-4 h-4 animate-spin text-white" /> ENVIANDO...</>
+            ) : (
+                <><CloudUpload className="w-4 h-4 text-white" /> Sincronizar Nube</>
+            )}
           </button>
         </div>
       </header>

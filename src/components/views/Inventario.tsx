@@ -9,43 +9,71 @@ const Inventario: React.FC = () => {
   const [search, setSearch] = useState("");
   const [sucursalFilter, setSucursalFilter] = useState("TODAS");
   const [mesFilter, setMesFilter] = useState("TODOS");
+  const [añoFilter, setAñoFilter] = useState("TODOS");
   const [page, setPage] = useState(1);
   const itemsPerPage = 25;
 
-  const availableMeses = useMemo(() => {
-    const m = new Set<string>();
+  const { availableMeses, availableYears } = useMemo(() => {
+    const mesSet = new Set<string>();
+    const yearSet = new Set<string>();
+    
     globalCols.forEach(c => {
         const parts = c.split('_');
         if (parts.length > 1) {
-            m.add(parts.slice(1).join('_'));
+            const sub = parts.slice(1).join('_').toUpperCase();
+            
+            const monthMatch = sub.match(/[A-ZÁÉÍÓÚ]+/i);
+            const yearMatch = sub.match(/[0-9]{2,4}/);
+            
+            if (monthMatch) mesSet.add(monthMatch[0].toUpperCase());
+            else mesSet.add(sub);
+            
+            if (yearMatch) yearSet.add(yearMatch[0]);
         }
     });
-    return Array.from(m).sort();
+    return {
+       availableMeses: Array.from(mesSet).sort(),
+       availableYears: Array.from(yearSet).sort((a, b) => Number(a) - Number(b))
+    };
   }, [globalCols]);
 
   const visibleCols = useMemo(() => {
     return globalCols.filter(c => {
         if (c === 'Clave' || c === 'Artículo' || c === 'Exist') return true;
         
+        const upper = c.toUpperCase();
         let matchSuc = true;
         if (sucursalFilter !== "TODAS") {
-            const upper = c.toUpperCase();
             matchSuc = upper === sucursalFilter || upper.startsWith(sucursalFilter + "_");
         }
         
         let matchMes = true;
-        if (mesFilter !== "TODOS") {
+        let matchAño = true;
+        if (mesFilter !== "TODOS" || añoFilter !== "TODOS") {
             const parts = c.split('_');
             if (parts.length > 1) {
-                matchMes = parts.slice(1).join('_').toUpperCase() === mesFilter.toUpperCase();
+                const sub = parts.slice(1).join('_').toUpperCase();
+                const monthMatch = sub.match(/[A-ZÁÉÍÓÚ]+/i);
+                const yearMatch = sub.match(/[0-9]{2,4}/);
+                
+                const monthPart = monthMatch ? monthMatch[0].toUpperCase() : sub;
+                const yearPart = yearMatch ? yearMatch[0] : "";
+                
+                if (mesFilter !== "TODOS") {
+                    matchMes = monthPart === mesFilter;
+                }
+                if (añoFilter !== "TODOS" && availableYears.length > 0) {
+                    matchAño = yearPart === añoFilter;
+                }
             } else {
                 matchMes = false;
+                matchAño = false;
             }
         }
         
-        return matchSuc && matchMes;
+        return matchSuc && matchMes && matchAño;
     });
-  }, [globalCols, sucursalFilter, mesFilter]);
+  }, [globalCols, sucursalFilter, mesFilter, añoFilter, availableYears]);
 
   const filteredData = useMemo(() => {
     if (!masterData) return [];
@@ -100,11 +128,11 @@ const Inventario: React.FC = () => {
             />
           </div>
           
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
             <select
                value={sucursalFilter}
-               onChange={(e) => setSucursalFilter(e.target.value)}
+               onChange={(e) => { setSucursalFilter(e.target.value); setPage(1); }}
                className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-slate-700 shadow-sm"
             >
                <option value="TODAS">Todas las Sucursales</option>
@@ -113,31 +141,41 @@ const Inventario: React.FC = () => {
             {availableMeses.length > 0 && (
               <select
                  value={mesFilter}
-                 onChange={(e) => setMesFilter(e.target.value)}
-                 className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-slate-700 shadow-sm"
+                 onChange={(e) => { setMesFilter(e.target.value); setPage(1); }}
+                 className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-slate-700 shadow-sm w-[130px]"
               >
-                 <option value="TODOS">Todos los Meses</option>
+                 <option value="TODOS">Mes: Todos</option>
                  {availableMeses.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+            {availableYears.length > 0 && (
+              <select
+                 value={añoFilter}
+                 onChange={(e) => { setAñoFilter(e.target.value); setPage(1); }}
+                 className="bg-white border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 text-slate-700 shadow-sm w-[130px]"
+              >
+                 <option value="TODOS">Año: Todos</option>
+                 {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded text-xs font-bold transition-colors uppercase">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <button className="flex items-center justify-center flex-1 sm:flex-none gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded shadow-sm text-xs font-bold transition-colors uppercase">
             <Columns className="w-4 h-4" /> Columnas
           </button>
-          <button onClick={handleExport} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-xs font-bold transition-colors uppercase">
+          <button onClick={handleExport} className="flex items-center justify-center flex-1 sm:flex-none gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded shadow text-xs font-bold transition-colors uppercase">
             <Save className="w-4 h-4" /> Guardar
           </button>
         </div>
       </header>
 
-      <div className="flex items-center gap-6 px-6 py-3 bg-slate-50/80 text-[10px] border-b border-slate-200 font-medium uppercase tracking-wider text-slate-500">
-        <span>Color de filas:</span>
-        <span className="text-red-600 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> Sin existencia / Crítico</span>
-        <span className="text-amber-600 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Existencia baja</span>
-        <span className="text-green-600 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Existencia normal</span>
+      <div className="flex items-center gap-6 px-6 py-3 bg-slate-50/80 text-[10px] border-b border-slate-200 font-medium uppercase tracking-wider text-slate-500 overflow-x-auto">
+        <span className="shrink-0">Color de filas:</span>
+        <span className="text-red-600 flex items-center gap-1 shrink-0"><span className="w-2 h-2 rounded-full bg-red-500"></span> Sin existencia / Crítico</span>
+        <span className="text-amber-600 flex items-center gap-1 shrink-0"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Existencia baja</span>
+        <span className="text-green-600 flex items-center gap-1 shrink-0"><span className="w-2 h-2 rounded-full bg-green-500"></span> Existencia normal</span>
       </div>
 
       <div className="flex-1 overflow-hidden p-6 relative flex flex-col">
@@ -145,11 +183,26 @@ const Inventario: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap min-w-max border-slate-300">
             <thead className="bg-slate-100 text-slate-600 uppercase text-[11px] tracking-wider relative z-10 shadow-sm border-b-2 border-slate-300">
               <tr>
-                {visibleCols.map((c) => (
-                  <th key={c} className="py-2.5 px-4 font-bold border-r border-slate-300 last:border-r-0 sticky top-0 bg-slate-100">
-                    {c}
-                  </th>
-                ))}
+                {visibleCols.map((c) => {
+                  let headerRender = <>{c}</>;
+                  if (c !== 'Clave' && c !== 'Artículo' && c !== 'Exist' && c.includes('_')) {
+                      const parts = c.split('_');
+                      const sucName = parts[0];
+                      const sub = parts.slice(1).join('_');
+                      headerRender = (
+                          <div className="flex flex-col items-start leading-tight">
+                              <span>{sucName}</span>
+                              <span className="text-[9px] text-blue-600 font-bold tracking-widest">{sub}</span>
+                          </div>
+                      );
+                  }
+                  
+                  return (
+                    <th key={c} className="py-2.5 px-4 font-bold border-r border-slate-300 last:border-r-0 sticky top-0 bg-slate-100 min-w-[80px]">
+                      {headerRender}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -157,12 +210,16 @@ const Inventario: React.FC = () => {
                 return (
                   <tr key={`${row.clave}-${i}`} className={`transition-colors font-medium border-b border-slate-200 hover:bg-slate-50 bg-white`}>
                     {visibleCols.map((c) => {
-                       let displayValue = row.raw[c] ?? "";
+                       let displayValue: any = row.raw[c];
                        let cellClass = "py-2.5 px-4 border-r border-slate-300/40 last:border-r-0 font-mono text-[13px] ";
+                       let content: React.ReactNode = displayValue;
                        
-                       if (typeof displayValue === 'number') {
+                       if (displayValue === "" || displayValue === null || displayValue === undefined) {
+                           content = <span className="text-slate-300 select-none">—</span>;
+                           cellClass += "text-center ";
+                       } else if (typeof displayValue === 'number') {
                            if (displayValue > 0 && c !== 'Exist' && c !== 'Clave') {
-                               displayValue = displayValue.toLocaleString();
+                               content = displayValue.toLocaleString();
                            }
                            
                            // Color code cells for branch values
@@ -183,7 +240,7 @@ const Inventario: React.FC = () => {
 
                       return (
                         <td key={c} className={cellClass}>
-                          {displayValue}
+                          {content}
                         </td>
                       );
                     })}

@@ -1,4 +1,5 @@
 import React from "react";
+import { Toaster } from "sonner";
 import { AppProvider, useAppContext } from "./AppContext";
 import { Sidebar } from "./components/Sidebar";
 import Inicio from "./components/views/Inicio";
@@ -32,6 +33,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
+      <Toaster position="top-right" richColors />
       <Sidebar />
       <main className="flex-1 overflow-hidden relative flex flex-col">{renderView()}</main>
     </div>

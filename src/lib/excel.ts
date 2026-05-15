@@ -42,8 +42,18 @@ export const processMasterFile = async (
         const header0 = rows[0] || [];
         const header1 = rows[1] || [];
 
-        // Determine if it's MultiIndex by checking if row 1 has months like ENE, FEB, MAR
-        const isMultiIndex = header1.some(v => /^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)$/i.test(String(v || "").trim()));
+        const monthNamesSet = new Set<string>();
+        header1.forEach(v => {
+            const hStr = String(v || "").trim().toUpperCase();
+            // Busca meses con o sin año (ej. ABR, ABR24, etc.)
+            const match = hStr.match(/^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SEPT|OCT|NOV|DIC)/i);
+            if (match) {
+                monthNamesSet.add(hStr);
+            }
+        });
+        
+        const isMultiIndex = monthNamesSet.size > 0;
+        const numMeses = isMultiIndex ? monthNamesSet.size : 1;
 
         let rawColumns: string[] = [];
         let dataStartIndex = 1;
@@ -166,16 +176,43 @@ export const processMasterFile = async (
 
           // Accurate Alerts Logic (like backend)
           if (isMultiIndex || (row["Exist"] !== undefined && String(row["Exist"]).trim() !== "")) {
-             // Rotacion mode:
-             if (exist <= 0) {
-                 alerts.push({ tipo: "COMPRA", producto: articulo, clave, origen: "PROVEEDOR", destino: "ABASTOS", cantidad: "REVISAR" });
-             } else if (exist <= STOCK_BAJO) {
-                 let highestSuc = ""; let maxH = -1;
-                 Object.keys(groupDataBySucTotal).forEach(s => {
-                     if (groupDataBySucTotal[s] > maxH) { maxH = groupDataBySucTotal[s]; highestSuc = s; }
+             // 1. Promedio Venta Mensual Global
+             const ventaPromedioMensualGlobal = totalGeneral / numMeses;
+             
+             // 2. Cobertura Global (en días)
+             const coberturaDiasGlobal = ventaPromedioMensualGlobal > 0 ? (exist / ventaPromedioMensualGlobal) * 30 : 9999;
+
+             // 3. Regla de COMPRA URGENTE
+             if (exist <= 2 || coberturaDiasGlobal < 15) {
+                 alerts.push({
+                     tipo: "COMPRA",
+                     producto: articulo,
+                     clave,
+                     origen: "PROVEEDOR",
+                     destino: "ABASTOS",
+                     cantidad: "REVISAR"
                  });
-                 if (highestSuc && maxH > 0) {
-                     alerts.push({ tipo: "TRASPASO", producto: articulo, clave, origen: highestSuc !== "ABASTOS" ? highestSuc : "MATRIZ", destino: highestSuc !== "ABASTOS" ? "ABASTOS" : highestSuc, cantidad: 2 });
+             } else {
+                 // 4. Regla de TRASPASO
+                 let highestSuc = ""; 
+                 let maxVenta = 0;
+                 Object.keys(groupDataBySucTotal).forEach(s => {
+                     let ventaPromedioLocal = groupDataBySucTotal[s] / numMeses;
+                     if (ventaPromedioLocal > maxVenta) { 
+                         maxVenta = ventaPromedioLocal; 
+                         highestSuc = s; 
+                     }
+                 });
+                 
+                 if (highestSuc && maxVenta > 0) {
+                     alerts.push({
+                         tipo: "TRASPASO",
+                         producto: articulo,
+                         clave,
+                         origen: highestSuc !== "ABASTOS" ? "ABASTOS" : "MATRIZ",
+                         destino: highestSuc,
+                         cantidad: Math.max(2, Math.ceil(maxVenta))
+                     });
                  }
              }
           } else {
