@@ -194,10 +194,43 @@ export const processMasterFile = async (
     });
 };
 
-export const exportToExcel = (dataToExport: any[], filename: string) => {
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+export const exportToExcel = (dataToExport: any[], filename: string, columnsToKeep?: string[]) => {
+    if (!dataToExport || dataToExport.length === 0) return;
+
+    // 1. Filtrar las columnas si el usuario especificó cuáles quiere (Exportación Personalizada)
+    const finalData = columnsToKeep && columnsToKeep.length > 0
+        ? dataToExport.map(row => {
+            const newRow: Record<string, any> = {};
+            columnsToKeep.forEach(col => {
+                newRow[col] = row[col] !== undefined ? row[col] : ""; // Evitar undefined
+            });
+            return newRow;
+        })
+        : dataToExport;
+
+    // 2. Crear la hoja
+    const ws = XLSX.utils.json_to_sheet(finalData);
+
+    // 3. MEJORAR EL ASPECTO: Auto-ajuste del ancho de las columnas
+    const colWidths = [];
+    const keys = Object.keys(finalData[0] || {});
+    for (const key of keys) {
+        let max = key.length; // Tomar en cuenta el tamaño del título de la columna
+        for (const row of finalData) {
+            const val = row[key];
+            if (val !== undefined && val !== null) {
+                const len = String(val).length;
+                if (len > max) max = len;
+            }
+        }
+        // Añadir padding visual (+2), pero limitar el máximo a 50 para no hacer columnas gigantes
+        colWidths.push({ wch: Math.min(max + 2, 50) });
+    }
+    ws['!cols'] = colWidths; // Inyectar los anchos calculados
+
+    // 4. Crear el libro y exportar
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    XLSX.utils.book_append_sheet(wb, ws, "Datos Exportados");
     XLSX.writeFile(wb, filename);
 };
 
@@ -259,6 +292,9 @@ export const procesarRotacionCruzada = async (
     // Columnas que enviaremos a la tabla
     const rawColumns = ["Clave", "Artículo", "Exist", "Ventas_Global", "Estado_Rotacion", ...SUCURSALES.map(s => s.toUpperCase())];
 
+    // PARA ASEGURAR QUE SE EXPORTEN LAS ROTACIONES:
+    SUCURSALES.forEach(s => rawColumns.push(`Rotacion_${s.toUpperCase()}`));
+
     rawExist.forEach((row) => {
         // Buscar llaves correctas independientemente de espacios
         const claveKey = Object.keys(row).find((k) => k.toLowerCase().includes("clave"));
@@ -312,6 +348,19 @@ export const procesarRotacionCruzada = async (
                                 cantidad: val // Mandamos el stock estancado
                             });
                         }
+                    }
+
+                    // ----------------------------------------------------
+                    // PUNTO 1: ESTADO DE ROTACIÓN INDIVIDUAL POR SUCURSAL
+                    // ----------------------------------------------------
+                    if (val <= 0 && ventaEnEstaSucursal > 0) {
+                        visualRaw[`Rotacion_${sucNorm}`] = "COMPRA URGENTE";
+                    } else if (val > 0 && ventaEnEstaSucursal === 0) {
+                        visualRaw[`Rotacion_${sucNorm}`] = "NULA ROTACIÓN";
+                    } else if (val === 0 && ventaEnEstaSucursal === 0) {
+                        visualRaw[`Rotacion_${sucNorm}`] = "SIN MOVIMIENTO"; // Ni se vende, ni hay stock
+                    } else {
+                        visualRaw[`Rotacion_${sucNorm}`] = "ROTACIÓN ACTIVA";
                     }
                 }
             }
