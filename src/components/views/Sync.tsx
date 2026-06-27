@@ -3,15 +3,27 @@ import { FolderUp, Loader2, DatabaseZap } from "lucide-react";
 import { toast } from "sonner";
 import { useAppContext } from "../../AppContext";
 import * as XLSX from "xlsx";
-import { MESES } from "../../lib/constants";
+import { MESES, SUCURSALES } from "../../lib/constants";
 
 const Sync: React.FC = () => {
     const { masterData, setMasterData } = useAppContext();
     const [loadingStocks, setLoadingStocks] = useState(false);
     const [loadingSales, setLoadingSales] = useState(false);
 
+    // Estados para los selectores de sucursal
+    const [sucursalStock, setSucursalStock] = useState("TODAS");
+    const [sucursalSales, setSucursalSales] = useState("TODAS");
+
     const stockInputRef = useRef<HTMLInputElement>(null);
     const salesInputRef = useRef<HTMLInputElement>(null);
+
+    // Normalizador de sucursales
+    const normSucursal = (nombre: string) => {
+        let limpio = nombre.toLowerCase().replace("sucursal", "").trim();
+        if (limpio === "santarosa") return "SANTA ROSA";
+        if (limpio === "torre medica" || limpio === "torremedica") return "TORRE MEDICA";
+        return limpio.toUpperCase();
+    };
 
     // --- 1. ACTUALIZAR EXISTENCIAS ---
     const handleUpdateStocks = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,7 +37,7 @@ const Sync: React.FC = () => {
         }
 
         setLoadingStocks(true);
-        const loadingToast = toast.loading("Analizando archivo de existencias físicas...");
+        const loadingToast = toast.loading(`Actualizando existencias para: ${sucursalStock}...`);
 
         try {
             const data = await file.arrayBuffer();
@@ -33,23 +45,65 @@ const Sync: React.FC = () => {
             const sheet = wb.Sheets[wb.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-            const updatedMaster = [...masterData];
-            let updatedCount = 0;
-
+            // Diccionario rápido para cruzar datos por CLAVE
+            const newDataDict: Record<string, any> = {};
             rows.forEach(row => {
-                const clave = String(row["Clave"] || row["CLAVE"] || row["Código"] || "").trim().toUpperCase();
-                // Busca variaciones del nombre de la columna para 'Existencia'
-                const nuevaExistencia = Number(row["Existencia"] || row["General"] || row["Exist"] || row["EXISTENCIA"] || 0);
-
-                const idx = updatedMaster.findIndex(m => String(m.clave).trim().toUpperCase() === clave);
-                if (idx !== -1 && nuevaExistencia !== undefined && !isNaN(nuevaExistencia)) {
-                    updatedMaster[idx].exist = nuevaExistencia;
-                    updatedCount++;
+                const claveKey = Object.keys(row).find(k => k.toLowerCase().includes("clave") || k.toLowerCase().includes("cod"));
+                if (claveKey) {
+                    const clave = String(row[claveKey]).trim().toUpperCase();
+                    if (clave && clave !== "000XXX") newDataDict[clave] = row;
                 }
             });
 
+            let updatedCount = 0;
+
+            const updatedMaster = masterData.map(productoOriginal => {
+                const clave = String(productoOriginal.clave).trim().toUpperCase();
+                const nuevoDato = newDataDict[clave];
+
+                if (nuevoDato) {
+                    // COPIA PROFUNDA: Esto asegura que el 22 pase a 33 en la tabla visualmente
+                    const productoActualizado = {
+                        ...productoOriginal,
+                        sucursales: { ...productoOriginal.sucursales },
+                        raw: { ...productoOriginal.raw }
+                    };
+
+                    if (sucursalStock !== "TODAS") {
+                        // SI ES UNA SUCURSAL ESPECÍFICA (Ej. Abastos)
+                        // Busca la columna de la sucursal, o las genéricas de total
+                        const colVal = nuevoDato[sucursalStock] || nuevoDato["Existencia"] || nuevoDato["General"] || nuevoDato["Exist"] || nuevoDato["EXISTENCIA"] || nuevoDato["TOTAL"] || 0;
+                        const nuevaExistencia = Number(colVal);
+
+                        if (!isNaN(nuevaExistencia)) {
+                            productoActualizado.sucursales[sucursalStock] = nuevaExistencia;
+                            productoActualizado.raw[sucursalStock] = nuevaExistencia;
+                            updatedCount++;
+                        }
+                    } else {
+                        // SI ES GLOBAL (Todas las sucursales en un solo archivo)
+                        Object.keys(nuevoDato).forEach((k) => {
+                            const sucNorm = normSucursal(k);
+                            if (SUCURSALES.map(s => s.toUpperCase()).includes(sucNorm)) {
+                                const val = Number(nuevoDato[k]) || 0;
+                                productoActualizado.sucursales[sucNorm] = val;
+                                productoActualizado.raw[sucNorm] = val;
+                                updatedCount++;
+                            }
+                        });
+                    }
+
+                    // Recalcular el gran total global sumando todas las sucursales actualizadas
+                    const nuevoTotalGlobal = Object.values(productoActualizado.sucursales).reduce((a: number, b: any) => a + (Number(b) || 0), 0);                    productoActualizado.exist = nuevoTotalGlobal;
+                    productoActualizado.raw["Exist"] = nuevoTotalGlobal;
+
+                    return productoActualizado;
+                }
+                return productoOriginal; // Si no hay cambios, retorna intacto
+            });
+
             setMasterData(updatedMaster);
-            toast.success(`Existencias actualizadas: ${updatedCount} productos modificados.`, { id: loadingToast });
+            toast.success(`Existencias actualizadas correctamente.`, { id: loadingToast });
         } catch (err: any) {
             toast.error("Error al actualizar existencias: " + err.message, { id: loadingToast });
         } finally {
@@ -70,7 +124,7 @@ const Sync: React.FC = () => {
         }
 
         setLoadingSales(true);
-        const loadingToast = toast.loading("Procesando y sumando nuevo historial de ventas...");
+        const loadingToast = toast.loading(`Procesando historial de ventas para: ${sucursalSales}...`);
 
         try {
             const data = await file.arrayBuffer();
@@ -78,34 +132,49 @@ const Sync: React.FC = () => {
             const sheet = wb.Sheets[wb.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-            const updatedMaster = [...masterData];
+            const newDataDict: Record<string, any> = {};
+            rows.forEach(row => {
+                const claveKey = Object.keys(row).find(k => k.toLowerCase().includes("clave") || k.toLowerCase().includes("cod"));
+                if (claveKey) {
+                    const clave = String(row[claveKey]).trim().toUpperCase();
+                    if (clave && clave !== "000XXX") newDataDict[clave] = row;
+                }
+            });
+
             let updatedCount = 0;
 
-            rows.forEach(row => {
-                const clave = String(row["Clave"] || row["CLAVE"] || row["Código"] || "").trim().toUpperCase();
+            const updatedMaster = masterData.map(productoOriginal => {
+                const clave = String(productoOriginal.clave).trim().toUpperCase();
+                const nuevoDato = newDataDict[clave];
 
-                const idx = updatedMaster.findIndex(m => String(m.clave).trim().toUpperCase() === clave);
-                if (idx !== -1) {
+                if (nuevoDato) {
                     let ventasNuevas = 0;
 
-                    // Sumar ventas de los meses que vengan en el archivo nuevo
                     MESES.forEach(mes => {
-                        if (row[mes] !== undefined) {
-                            const valorMes = Number(row[mes]) || 0;
-                            // Si no existe el objeto meses, lo creamos
-                            if (!updatedMaster[idx].meses) updatedMaster[idx].meses = {};
-
-                            // Sumamos lo que ya había más lo nuevo
-                            updatedMaster[idx].meses[mes] = (updatedMaster[idx].meses[mes] || 0) + valorMes;
-                            ventasNuevas += valorMes;
+                        if (nuevoDato[mes] !== undefined) {
+                            ventasNuevas += Number(nuevoDato[mes]) || 0;
                         }
                     });
 
-                    // Actualizamos el gran total si hubo ventas nuevas
+                    // Si no trae meses, intentamos buscar una columna TOTAL
+                    if (ventasNuevas === 0 && (nuevoDato["TOTAL"] || nuevoDato["Total"])) {
+                        ventasNuevas = Number(nuevoDato["TOTAL"] || nuevoDato["Total"]) || 0;
+                    }
+
                     if (ventasNuevas > 0) {
                         updatedCount++;
+                        const ventasActuales = Number(productoOriginal.raw["Ventas_Global"] || 0);
+
+                        return {
+                            ...productoOriginal,
+                            raw: {
+                                ...productoOriginal.raw,
+                                Ventas_Global: ventasActuales + ventasNuevas
+                            }
+                        };
                     }
                 }
+                return productoOriginal;
             });
 
             setMasterData(updatedMaster);
@@ -133,9 +202,27 @@ const Sync: React.FC = () => {
                     <div className="h-2 w-full bg-blue-500"></div>
                     <div className="p-8 flex flex-col w-full h-full relative">
                         <h3 className="text-lg font-bold text-slate-800 mb-2">1. Carga de Existencias</h3>
-                        <p className="text-sm text-slate-500 mb-6 flex-1">
+                        <p className="text-sm text-slate-500 mb-4 flex-1">
                             Sube el reporte más reciente de almacén (ej. reporte diario o semanal). Solo modificará la columna de inventario físico disponible.
                         </p>
+
+                        <div className="w-full mb-6">
+                            <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">
+                                ¿A qué sucursal pertenece este archivo?
+                            </label>
+                            <select
+                                value={sucursalStock}
+                                onChange={(e) => setSucursalStock(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-slate-700"
+                            >
+                                <option value="TODAS">Global (Todas las Sucursales)</option>
+                                <optgroup label="Sucursal Específica">
+                                    {SUCURSALES.map((s) => (
+                                        <option key={s} value={s.toUpperCase()}>{s.toUpperCase()}</option>
+                                    ))}
+                                </optgroup>
+                            </select>
+                        </div>
 
                         <div className="relative w-full">
                             <input
@@ -164,9 +251,27 @@ const Sync: React.FC = () => {
                     <div className="h-2 w-full bg-green-500"></div>
                     <div className="p-8 flex flex-col w-full h-full relative">
                         <h3 className="text-lg font-bold text-slate-800 mb-2">2. Carga de Nuevas Ventas</h3>
-                        <p className="text-sm text-slate-500 mb-6 flex-1">
+                        <p className="text-sm text-slate-500 mb-4 flex-1">
                             Sube el reporte de ventas del mes o periodo reciente. El sistema sumará estas unidades vendidas al historial que ya existe para evaluar la rotación.
                         </p>
+
+                        <div className="w-full mb-6">
+                            <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">
+                                ¿A qué sucursal pertenece este reporte?
+                            </label>
+                            <select
+                                value={sucursalSales}
+                                onChange={(e) => setSucursalSales(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 text-slate-700"
+                            >
+                                <option value="TODAS">Global (Todas las Sucursales)</option>
+                                <optgroup label="Sucursal Específica">
+                                    {SUCURSALES.map((s) => (
+                                        <option key={s} value={s.toUpperCase()}>{s.toUpperCase()}</option>
+                                    ))}
+                                </optgroup>
+                            </select>
+                        </div>
 
                         <div className="relative w-full">
                             <input

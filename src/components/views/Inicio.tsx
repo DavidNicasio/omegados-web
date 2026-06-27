@@ -1,127 +1,287 @@
-import React, { useRef, useState } from "react";
-import { FolderUp, ArrowRight } from "lucide-react";
+import React, { useState, useMemo } from "react";
+import {
+    Package,
+    ArrowRightLeft,
+    ShoppingCart,
+    TrendingUp,
+    Store
+} from "lucide-react";
 import { useAppContext } from "../../AppContext";
-import { processMasterFile } from "../../lib/excel";
+import { SUCURSALES } from "../../lib/constants";
+import {
+    PieChart,
+    Pie,
+    Cell,
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    Tooltip,
+    ResponsiveContainer,
+    Legend
+} from "recharts";
+
+const COLORS = {
+    "ROTACIÓN ACTIVA": "#22c55e", // Verde
+    "NULA ROTACIÓN": "#f59e0b",   // Ambar
+    "COMPRA URGENTE": "#ef4444",  // Rojo
+    "SIN MOVIMIENTO": "#94a3b8",  // Gris
+};
 
 const Inicio: React.FC = () => {
-  const { setActiveView, setMasterData, setAlerts, setCols, setFileName } = useAppContext();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "ok" | "error" } | null>(null);
+    const { masterData, alerts } = useAppContext();
+    const [filtroSucursal, setFiltroSucursal] = useState("GLOBAL");
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    // Cálculos dinámicos basados en la sucursal seleccionada
+    const dashboardData = useMemo(() => {
+        if (!masterData || masterData.length === 0) return null;
 
-    setLoading(true);
-    setMessage(null);
+        let totalArticulos = 0;
+        let piezasFisicas = 0;
 
-    try {
-      const { data, alertas, rawColumns } = await processMasterFile(file);
-      setMasterData(data);
-      setAlerts(alertas);
-      setFileName(file.name);
-      
-      const exclude = ["KEY", "ID", "UUID"];
-      let visCols = rawColumns.filter(c => !exclude.includes(c.toUpperCase()));
-      
-      setCols(visCols);
-      setMessage({ text: `✅ Maestro cargado: ${data.length} productos`, type: "ok" });
-      setTimeout(() => setActiveView("inventario"), 800);
-    } catch (err: any) {
-      setMessage({ text: `❌ ${err}`, type: "error" });
-    } finally {
-      setLoading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+        // Contadores para el gráfico de Dona (Salud de Inventario)
+        const conteoSalud = {
+            "ROTACIÓN ACTIVA": 0,
+            "NULA ROTACIÓN": 0,
+            "COMPRA URGENTE": 0,
+            "SIN MOVIMIENTO": 0,
+        };
+
+        // Top 5 Productos con más stock
+        let productosStock: { nombre: string; stock: number }[] = [];
+
+        masterData.forEach((item) => {
+            totalArticulos++;
+
+            // Determinar qué columna leer según el filtro
+            if (filtroSucursal === "GLOBAL") {
+                piezasFisicas += item.exist || 0;
+                const estado = item.raw["Estado_Rotacion"] as keyof typeof conteoSalud || "SIN MOVIMIENTO";
+                if (conteoSalud[estado] !== undefined) conteoSalud[estado]++;
+
+                productosStock.push({
+                    nombre: item.articulo.substring(0, 20) + "...",
+                    stock: item.exist || 0
+                });
+            } else {
+                const stockLocal = item.sucursales[filtroSucursal] || 0;
+                piezasFisicas += stockLocal;
+
+                const estadoLocal = item.raw[`Rotacion_${filtroSucursal}`] as keyof typeof conteoSalud || "SIN MOVIMIENTO";
+                if (conteoSalud[estadoLocal] !== undefined) conteoSalud[estadoLocal]++;
+
+                productosStock.push({
+                    nombre: item.articulo.substring(0, 20) + "...",
+                    stock: stockLocal
+                });
+            }
+        });
+
+        // Filtrar alertas según la sucursal
+        const alertasFiltradas = alerts.filter(a =>
+            filtroSucursal === "GLOBAL" ||
+            a.origen === filtroSucursal ||
+            a.destino === filtroSucursal
+        );
+
+        const comprasUrgentes = alertasFiltradas.filter(a => a.tipo === "COMPRA").length;
+        const traspasosSugeridos = alertasFiltradas.filter(a => a.tipo === "TRASPASO").length;
+
+        // Formatear datos para Recharts
+        const dataDona = Object.keys(conteoSalud).map(key => ({
+            name: key,
+            value: conteoSalud[key as keyof typeof conteoSalud]
+        })).filter(d => d.value > 0);
+
+        const top5Stock = productosStock
+            .sort((a, b) => b.stock - a.stock)
+            .slice(0, 5);
+
+        return {
+            totalArticulos,
+            piezasFisicas,
+            comprasUrgentes,
+            traspasosSugeridos,
+            dataDona,
+            top5Stock,
+            alertasRecientes: alertasFiltradas.slice(0, 6) // Solo mostrar las últimas 6
+        };
+    }, [masterData, alerts, filtroSucursal]);
+
+    // Pantalla de Bienvenida si no hay datos
+    if (!dashboardData) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50">
+                <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6">
+                    <Store className="w-12 h-12 text-blue-600" />
+                </div>
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">Bienvenido a Farmacia ERP</h1>
+                <p className="text-slate-500 max-w-lg text-center leading-relaxed">
+                    Para comenzar a visualizar tu panel de control interactivo, por favor carga tus archivos de existencias y ventas desde la pestaña de <b>Rotación</b> o <b>Sincronizar</b>.
+                </p>
+            </div>
+        );
     }
-  };
 
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
-      <div className="max-w-4xl w-full flex flex-col items-center">
-        <h2 className="text-3xl font-bold mb-2 text-slate-900">Bienvenido al sistema de Inventario</h2>
-        <p className="text-slate-500 text-center mb-12 max-w-lg">
-          El sistema trabaja en 2 pasos para generar el reporte de Rotación.
-        </p>
+    return (
+        <div className="flex-1 overflow-y-auto bg-slate-50 p-6 sm:p-8">
+            {/* HEADER Y FILTRO */}
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Panel de Control</h1>
+                    <p className="text-sm text-slate-500">Resumen operativo y salud del inventario</p>
+                </div>
 
-        <div className="flex flex-col md:flex-row gap-6 mb-12 w-full justify-center items-stretch">
-          <div className="bg-white rounded-xl p-6 flex-1 max-w-[240px] flex flex-col border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <span className="text-blue-600 text-4xl font-bold mb-4 font-mono">01</span>
-            <h3 className="font-bold text-sm mb-2 text-slate-800">Ventas → Existencias</h3>
-            <p className="text-xs text-slate-500 flex-1">Carga archivos de ventas y genera Existencias por sucursal</p>
-            <button
-               onClick={() => setActiveView("paso1")}
-               className="mt-4 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800 flex items-center justify-center gap-2 transition-colors w-full uppercase tracking-wider"
-            >
-              Ir →
-            </button>
-          </div>
+                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-1.5 shadow-sm">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-2">Vista:</span>
+                    <select
+                        value={filtroSucursal}
+                        onChange={(e) => setFiltroSucursal(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-slate-700 py-1 px-2 focus:outline-none cursor-pointer"
+                    >
+                        <option value="GLOBAL">Red Global</option>
+                        <optgroup label="Sucursales">
+                            {SUCURSALES.map(s => (
+                                <option key={s} value={s.toUpperCase()}>{s.toUpperCase()}</option>
+                            ))}
+                        </optgroup>
+                    </select>
+                </div>
+            </header>
 
-          <div className="hidden md:flex items-center text-slate-300"><ArrowRight className="w-8 h-8"/></div>
+            {/* KPIS GRID */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><Package className="w-6 h-6" /></div>
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catálogo Activo</p>
+                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.totalArticulos.toLocaleString()}</h3>
+                    </div>
+                </div>
 
-          <div className="bg-white rounded-xl p-6 flex-1 max-w-[240px] flex flex-col border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-            <span className="text-blue-600 text-4xl font-bold mb-4 font-mono">02</span>
-            <h3 className="font-bold text-sm mb-2 text-slate-800">Existencias → Rotación</h3>
-            <p className="text-xs text-slate-500 flex-1">Carga el archivo de Existencias y genera el reporte de Rotación</p>
-            <button
-               onClick={() => setActiveView("paso2")}
-               className="mt-4 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800 flex items-center justify-center gap-2 transition-colors w-full uppercase tracking-wider"
-            >
-              Ir →
-            </button>
-          </div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp className="w-6 h-6" /></div>
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Piezas Físicas</p>
+                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.piezasFisicas.toLocaleString()}</h3>
+                    </div>
+                </div>
 
-          <div className="hidden md:flex items-center text-slate-300"><ArrowRight className="w-8 h-8"/></div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-red-50 text-red-600 rounded-lg"><ShoppingCart className="w-6 h-6" /></div>
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Compras Urgentes</p>
+                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.comprasUrgentes.toLocaleString()}</h3>
+                    </div>
+                </div>
 
-          <div className="bg-slate-900 rounded-xl p-6 flex-1 max-w-[240px] flex flex-col border border-slate-800 shadow-lg">
-            <span className="text-blue-400 text-4xl font-bold mb-4 font-mono">03</span>
-            <h3 className="font-bold text-sm mb-2 text-white">Cargar Maestro</h3>
-            <p className="text-xs text-slate-400 flex-1">Abre el Excel de Rotación para el seguimiento diario</p>
-            <button
-               onClick={() => fileInputRef.current?.click()}
-               className="mt-4 px-4 py-2 bg-blue-600/20 text-blue-400 text-xs font-bold rounded hover:bg-blue-600/30 flex items-center justify-center gap-2 transition-colors w-full uppercase tracking-wider border border-blue-500/20"
-            >
-              Cargar →
-            </button>
-          </div>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><ArrowRightLeft className="w-6 h-6" /></div>
+                    <div>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Traspasos Pendientes</p>
+                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.traspasosSugeridos.toLocaleString()}</h3>
+                    </div>
+                </div>
+            </div>
+
+            {/* CHARTS GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+                {/* GRÁFICO DONA - SALUD DE INVENTARIO */}
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col h-[380px]">
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Estado y Rotación</h3>
+                    <div className="flex-1 w-full relative">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={dashboardData.dataDona}
+                                    innerRadius={70}
+                                    outerRadius={100}
+                                    paddingAngle={2}
+                                    dataKey="value"
+                                >
+                                    {dashboardData.dataDona.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[entry.name as keyof typeof COLORS] || COLORS["SIN MOVIMIENTO"]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    formatter={(value: number) => [value.toLocaleString() + " Artículos", "Cantidad"]}
+                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                />
+                                <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }}/>
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* GRÁFICO BARRAS - TOP INVENTARIO ESTANCADO O MAYOR STOCK */}
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col h-[380px]">
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Top 5 Volumen de Stock</h3>
+                    <div className="flex-1 w-full mt-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={dashboardData.top5Stock} layout="vertical" margin={{ left: 20 }}>
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="nombre" type="category" width={140} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                <Tooltip
+                                    cursor={{ fill: '#f1f5f9' }}
+                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                />
+                                <Bar dataKey="stock" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+            </div>
+
+            {/* FEED DE ALERTAS RECIENTES */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Alertas Críticas Recientes</h3>
+                </div>
+                <div className="p-0">
+                    {dashboardData.alertasRecientes.length === 0 ? (
+                        <div className="p-8 text-center text-sm font-bold text-slate-400 uppercase tracking-wider">
+                            No hay alertas pendientes para esta vista.
+                        </div>
+                    ) : (
+                        <table className="w-full text-left text-xs">
+                            <tbody>
+                            {dashboardData.alertasRecientes.map((alerta, idx) => (
+                                <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                                    <td className="p-4 w-12 text-center">
+                                        {alerta.tipo === "COMPRA" ? (
+                                            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600">🛒</div>
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">📦</div>
+                                        )}
+                                    </td>
+                                    <td className="p-4 font-bold text-slate-700 w-1/3 truncate max-w-[200px]" title={alerta.producto}>
+                                        {alerta.producto}
+                                    </td>
+                                    <td className="p-4 font-mono text-slate-500">ID: {alerta.clave}</td>
+                                    <td className="p-4 text-right">
+                                        {alerta.tipo === "COMPRA" ? (
+                                            <span className="px-2 py-1 bg-red-50 text-red-700 font-bold rounded text-[10px] border border-red-100">
+                          URGENTE PARA {alerta.destino}
+                        </span>
+                                        ) : (
+                                            <span className="text-[10px] font-bold text-slate-500 flex items-center justify-end gap-2">
+                          <span className="px-2 py-1 bg-white border border-slate-200 rounded">{alerta.origen}</span>
+                          <ArrowRightLeft className="w-3 h-3 text-slate-300" />
+                          <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded">{alerta.destino}</span>
+                        </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
         </div>
-
-        <div className="bg-white rounded-xl p-8 w-full max-w-xl text-center border border-slate-200 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500 flex items-center gap-2">
-              <FolderUp className="w-4 h-4"/> Master File Loader
-            </h3>
-            <span className="text-[10px] font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">READY FOR ANALYSIS</span>
-          </div>
-          <div className="border-2 border-dashed border-slate-200 rounded-lg p-8 flex flex-col items-center justify-center bg-slate-50 mb-4">
-            <p className="text-xs text-slate-500 mb-4">
-              Si ya tienes un archivo de Rotación generado, ábrelo aquí directamente
-            </p>
-            <input
-              type="file"
-              accept=".xlsx, .xls, .xlsm"
-              className="hidden"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading}
-              className="px-6 py-2 bg-white border border-slate-300 rounded shadow-sm text-xs font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
-            >
-              {loading ? "CARGANDO..." : "SELECT FILE"}
-            </button>
-          </div>
-          
-          {message && (
-             <p className={`mt-2 text-[11px] font-mono tracking-wide ${message.type === 'ok' ? 'text-green-600 bg-green-50 px-3 py-1.5 rounded border border-green-200' : 'text-red-700 bg-red-50 px-3 py-1.5 rounded border border-red-200'}`}>
-                {message.text}
-             </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default Inicio;
