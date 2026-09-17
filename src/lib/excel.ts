@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { SUCURSALES, STOCK_BAJO } from "./constants";
+import { SUCURSALES, STOCK_BAJO, MESES } from "./constants";
 
 export interface Alert {
     tipo: "COMPRA" | "TRASPASO";
@@ -8,6 +8,7 @@ export interface Alert {
     origen: string;
     destino: string;
     cantidad: number | "REVISAR";
+    sucursales?: string[];
 }
 
 export interface MasterRow {
@@ -239,12 +240,42 @@ export const exportToExcel = (dataToExport: any[], filename: string, columnsToKe
 // NUEVA LÓGICA: CRUCE DE VENTAS Y EXISTENCIAS (Reglas Exactas de la Clienta)
 // =========================================================================
 
-// Normaliza nombres como "santarosa" a "SANTA ROSA"
-const normSucursal = (nombre: string) => {
-    let limpio = nombre.toLowerCase().replace("sucursal", "").trim();
-    if (limpio === "santarosa") return "SANTA ROSA";
-    if (limpio === "torre medica" || limpio === "torremedica") return "TORRE MEDICA";
+// Normaliza nombres de sucursal de forma flexible
+export const normSucursal = (nombre: string): string => {
+    if (!nombre) return "";
+    let limpio = String(nombre).toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar acentos
+        .replace(/sucursal|suc\.?|farmacia|almacen|almacén|bodega/g, "")
+        .replace(/[^a-z0-9]/g, " ")
+        .trim();
+
+    if (limpio.includes("abasto")) return "ABASTOS";
+    if (limpio.includes("atzompa")) return "ATZOMPA";
+    if (limpio.includes("casa")) return "CASAS";
+    if (limpio.includes("centro")) return "CENTRO";
+    if (limpio.includes("etla")) return "ETLA";
+    if (limpio.includes("matriz")) return "MATRIZ";
+    if (limpio.includes("moll") || limpio.includes("plaza bella")) return "MOLL";
+    if (limpio.includes("reforma")) return "REFORMA";
+    if (limpio.includes("rosario")) return "ROSARIO";
+    if ((limpio.includes("santa") && limpio.includes("rosa")) || limpio === "santarosa") return "SANTA ROSA";
+    if (limpio.includes("telix")) return "TELIX";
+    if (limpio.includes("tlacolula")) return "TLACOLULA";
+    if (limpio.includes("torre") || limpio.includes("medica")) return "TORRE MEDICA";
+    if (limpio === "va" || limpio.startsWith("va ")) return "VA";
+    if (limpio.includes("viguera")) return "VIGUERA";
+    if (limpio.includes("xoxo")) return "XOXO";
+
     return limpio.toUpperCase();
+};
+
+const cleanClave = (val: any): string => {
+    if (val === undefined || val === null) return "";
+    let c = String(val).trim().toUpperCase();
+    if (c.endsWith(".0") && !isNaN(Number(c.slice(0, -2)))) {
+        c = c.slice(0, -2);
+    }
+    return c;
 };
 
 export const procesarRotacionCruzada = async (
@@ -261,11 +292,28 @@ export const procesarRotacionCruzada = async (
     const diccionarioVentas: Record<string, any> = {};
 
     rawVentas.forEach((row) => {
-        const clave = String(row["CLAVE"] || row["Clave"] || "").trim().toUpperCase();
+        const claveKey = Object.keys(row).find((k) => /^(clave|codigo|código|cod|cve|articulo_id)$/i.test(k.trim()));
+        let clave = cleanClave(claveKey ? row[claveKey] : (row["CLAVE"] || row["Clave"] || ""));
         if (!clave || clave === "000XXX") return;
 
-        const sucursal = normSucursal(String(row["SUCURSAL"] || row["Sucursal"] || ""));
-        const total = Number(row["TOTAL"] || row["Total"] || 0);
+        const sucursalKey = Object.keys(row).find((k) => /^(sucursal|tienda|almacen|almacén|bodega|suc)$/i.test(k.trim()));
+        const sucursalRaw = sucursalKey ? row[sucursalKey] : (row["SUCURSAL"] || row["Sucursal"] || "");
+        const sucursal = normSucursal(String(sucursalRaw || ""));
+
+        // Buscar total o sumar meses dinámicamente si no existe columna TOTAL
+        let total = 0;
+        const totalKey = Object.keys(row).find((k) => /^(total|cantidad|cant|unidades|piezas|venta|ventas)$/i.test(k.trim()));
+        if (totalKey && row[totalKey] !== undefined && row[totalKey] !== null && String(row[totalKey]).trim() !== "") {
+            total = parseFloat(String(row[totalKey]).replace(/[^0-9.-]/g, "")) || 0;
+        } else {
+            // Sumar todas las columnas de meses (ENE, FEB, MAR, ABR, MAY, JUN, JUL, AGO, SEP, OCT, NOV, DIC)
+            MESES.forEach((m) => {
+                const mKey = Object.keys(row).find((k) => k.trim().toUpperCase().startsWith(m));
+                if (mKey && row[mKey] !== undefined && row[mKey] !== null) {
+                    total += parseFloat(String(row[mKey]).replace(/[^0-9.-]/g, "")) || 0;
+                }
+            });
+        }
 
         if (!diccionarioVentas[clave]) {
             diccionarioVentas[clave] = { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: {} };
@@ -297,12 +345,14 @@ export const procesarRotacionCruzada = async (
 
     rawExist.forEach((row) => {
         // Buscar llaves correctas independientemente de espacios
-        const claveKey = Object.keys(row).find((k) => k.toLowerCase().includes("clave"));
-        const articuloKey = Object.keys(row).find((k) => k.toLowerCase().includes("articulo"));
+        const claveKey = Object.keys(row).find((k) => /^(clave|codigo|código|cod|cve|articulo_id)$/i.test(k.trim()))
+            || Object.keys(row).find((k) => k.toLowerCase().includes("clave"));
+        const articuloKey = Object.keys(row).find((k) => /^(articulo|artículo|articulos|artículos|descripcion|descripción|producto)$/i.test(k.trim()))
+            || Object.keys(row).find((k) => k.toLowerCase().includes("articulo"));
 
         if (!claveKey || !articuloKey) return;
 
-        const clave = String(row[claveKey]).trim().toUpperCase();
+        const clave = cleanClave(row[claveKey]);
         const articulo = String(row[articuloKey]).trim();
 
         if (!clave || clave === "000XXX" || clave.toLowerCase().includes("clave")) return;
@@ -321,9 +371,9 @@ export const procesarRotacionCruzada = async (
         // Procesar inventario por sucursal
         Object.keys(row).forEach((k) => {
             const col = k.toLowerCase().trim();
-            const val = Number(row[k]) || 0;
+            const val = parseFloat(String(row[k] ?? "").replace(/[^0-9.-]/g, "")) || 0;
 
-            if (col === "general") {
+            if (col === "general" || col === "total" || col === "existencia" || col === "existencias" || col === "existencia general" || col === "exist") {
                 existGlobal = val;
             } else {
                 const sucNorm = normSucursal(k);
@@ -372,13 +422,21 @@ export const procesarRotacionCruzada = async (
 
         // Regla de Compra (Se vende pero no hay stock)
         if (existGlobal <= 0 && ventasDelProducto.totalGlobal > 0) {
+            const sucursalesConVenta = Object.keys(ventasDelProducto.sucursales)
+                .filter(s => (ventasDelProducto.sucursales[s] || 0) > 0);
+
+            const destinoStr = sucursalesConVenta.length === 1
+                ? sucursalesConVenta[0]
+                : (sucursalesConVenta.length > 0 ? sucursalesConVenta.join(", ") : "VARIAS");
+
             alertasGeneradas.push({
                 tipo: "COMPRA",
                 producto: articulo,
                 clave: clave,
                 origen: "PROVEEDOR",
-                destino: "VARIAS",
-                cantidad: "REVISAR"
+                destino: destinoStr,
+                cantidad: "REVISAR",
+                sucursales: sucursalesConVenta
             });
             visualRaw["Estado_Rotacion"] = "COMPRA URGENTE";
         } else if (existGlobal > 0 && ventasDelProducto.totalGlobal === 0) {

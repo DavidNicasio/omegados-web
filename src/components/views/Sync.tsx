@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAppContext } from "../../AppContext";
 import * as XLSX from "xlsx";
 import { MESES, SUCURSALES } from "../../lib/constants";
+import { normSucursal } from "../../lib/excel";
 
 const Sync: React.FC = () => {
     const { masterData, setMasterData } = useAppContext();
@@ -17,13 +18,7 @@ const Sync: React.FC = () => {
     const stockInputRef = useRef<HTMLInputElement>(null);
     const salesInputRef = useRef<HTMLInputElement>(null);
 
-    // Normalizador de sucursales
-    const normSucursal = (nombre: string) => {
-        let limpio = nombre.toLowerCase().replace("sucursal", "").trim();
-        if (limpio === "santarosa") return "SANTA ROSA";
-        if (limpio === "torre medica" || limpio === "torremedica") return "TORRE MEDICA";
-        return limpio.toUpperCase();
-    };
+
 
     // --- 1. ACTUALIZAR EXISTENCIAS ---
     const handleUpdateStocks = async (e: React.ChangeEvent<HTMLInputElement>) => {

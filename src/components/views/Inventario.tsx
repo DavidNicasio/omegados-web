@@ -1,7 +1,7 @@
 import React, {useMemo, useState} from "react";
 import {Search, Columns, Save, Filter} from "lucide-react";
 import {useAppContext} from "../../AppContext";
-import {STOCK_BAJO, SUCURSALES} from "../../lib/constants";
+import {STOCK_BAJO, SUCURSALES, MESES} from "../../lib/constants";
 import {exportToExcel} from "../../lib/excel";
 
 const Inventario: React.FC = () => {
@@ -18,30 +18,39 @@ const Inventario: React.FC = () => {
         const yearSet = new Set<string>();
 
         globalCols.forEach(c => {
+            // Ignorar columnas internas o calculadas de sistema
+            if (c.startsWith("Rotacion_") || c.startsWith("Ventas_") || c === "Estado_Rotacion") return;
+
             const parts = c.split('_');
             if (parts.length > 1) {
                 const sub = parts.slice(1).join('_').toUpperCase();
 
-                const monthMatch = sub.match(/[A-ZÁÉÍÓÚ]+/i);
+                // Validar que realmente sea un mes válido de MESES
+                const foundMes = MESES.find(m => sub.startsWith(m) || sub.includes(m));
+                if (foundMes) {
+                    mesSet.add(foundMes);
+                }
+
                 const yearMatch = sub.match(/[0-9]{2,4}/);
-
-                if (monthMatch) mesSet.add(monthMatch[0].toUpperCase());
-                else mesSet.add(sub);
-
                 if (yearMatch) yearSet.add(yearMatch[0]);
             }
         });
         return {
-            availableMeses: Array.from(mesSet).sort(),
+            availableMeses: Array.from(mesSet).sort((a, b) => MESES.indexOf(a) - MESES.indexOf(b)),
             availableYears: Array.from(yearSet).sort((a, b) => Number(a) - Number(b))
         };
     }, [globalCols]);
 
     const visibleCols = useMemo(() => {
         return globalCols.filter(c => {
-            // Agregamos 'Estado_Rotacion' para que SIEMPRE sea visible, incluso con filtros
+            // Clave, Artículo, Exist y Estado_Rotacion siempre visibles
             if (c === 'Clave' || c === 'Artículo' || c === 'Exist' || c === 'Estado_Rotacion') return true;
+
             const upper = c.toUpperCase();
+
+            // Si filtramos por una sucursal específica, su columna principal SIEMPRE debe ser visible
+            if (sucursalFilter !== "TODAS" && upper === sucursalFilter.toUpperCase()) return true;
+
             let matchSuc = true;
             if (sucursalFilter !== "TODAS") {
                 matchSuc = upper === sucursalFilter || upper.startsWith(sucursalFilter + "_");
@@ -53,10 +62,10 @@ const Inventario: React.FC = () => {
                 const parts = c.split('_');
                 if (parts.length > 1) {
                     const sub = parts.slice(1).join('_').toUpperCase();
-                    const monthMatch = sub.match(/[A-ZÁÉÍÓÚ]+/i);
+                    const foundMes = MESES.find(m => sub.startsWith(m) || sub.includes(m));
                     const yearMatch = sub.match(/[0-9]{2,4}/);
 
-                    const monthPart = monthMatch ? monthMatch[0].toUpperCase() : sub;
+                    const monthPart = foundMes || sub;
                     const yearPart = yearMatch ? yearMatch[0] : "";
 
                     if (mesFilter !== "TODOS") {
@@ -100,14 +109,37 @@ const Inventario: React.FC = () => {
     const handleExport = () => {
         if (!filteredData || filteredData.length === 0) return;
 
-        // Obtenemos SOLO los datos que pasaron por el filtro (texto)
-        const exportData = filteredData.map(r => r.raw);
+        // Obtenemos los datos que pasaron por el filtro
+        const exportData = filteredData.map(r => {
+            const rowCopy = { ...r.raw };
+            // Si el usuario filtró por una sucursal específica (ej. ABASTOS),
+            // inyectamos la rotación individual de esa sucursal en 'Estado_Rotacion'
+            if (sucursalFilter !== "TODAS") {
+                const keyIndividual = `Rotacion_${sucursalFilter.toUpperCase()}`;
+                rowCopy["Estado_Rotacion"] = r.raw[keyIndividual] || "SIN MOVIMIENTO";
+            }
+            return rowCopy;
+        });
+
+        // Asegurar que las columnas a exportar incluyan la sucursal filtrada
+        let colsToExport = [...visibleCols];
+        if (sucursalFilter !== "TODAS") {
+            const sucUpper = sucursalFilter.toUpperCase();
+            if (!colsToExport.includes(sucUpper)) {
+                const rotIndex = colsToExport.indexOf("Estado_Rotacion");
+                if (rotIndex !== -1) {
+                    colsToExport.splice(rotIndex, 0, sucUpper);
+                } else {
+                    colsToExport.push(sucUpper);
+                }
+            }
+        }
 
         // Nombre dinámico para que el cliente sepa qué sucursal exportó
         const nombreArchivo = `Maestro_${sucursalFilter !== "TODAS" ? sucursalFilter : "Global"}.xlsx`;
 
-        // Mandamos visibleCols para que ignore las sucursales que no queremos ver
-        exportToExcel(exportData, nombreArchivo, visibleCols);
+        // Exportar con las columnas seleccionadas y garantizadas
+        exportToExcel(exportData, nombreArchivo, colsToExport);
     };
 
     if (!masterData) {

@@ -1,6 +1,7 @@
 export const SUCURSALES = [
   "ABASTOS",
   "ATZOMPA",
+  "CASAS",
   "CENTRO",
   "ETLA",
   "MATRIZ",
@@ -8,8 +9,10 @@ export const SUCURSALES = [
   "REFORMA",
   "ROSARIO",
   "SANTA ROSA",
+  "TELIX",
   "TLACOLULA",
   "TORRE MEDICA",
+  "VA",
   "VIGUERA",
   "XOXO",
 ];
