@@ -315,23 +315,32 @@ const Alertas: React.FC = () => {
                                         </div>
 
                                         <h4 className="font-bold text-sm truncate mb-1 text-slate-800" title={a.producto}>{a.producto || "Sin nombre"}</h4>
-                                        <p className="text-[11px] font-mono text-slate-500 mb-5">ID: {a.clave}</p>
+                                        <p className="text-[11px] font-mono text-slate-500 mb-3">ID: {a.clave}</p>
 
-                                        <div className="mt-auto flex items-center justify-between bg-slate-50 p-2 rounded border border-slate-200">
-                                            {isTraspaso ? (
-                                                <>
-                                                    <span className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.origen}>{a.origen}</span>
-                                                    <span className="text-[10px] font-bold text-slate-400 font-mono tracking-widest">→ {a.cantidad} →</span>
-                                                    <span className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.destino}>{a.destino}</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[10px] uppercase font-bold truncate max-w-[90px] text-center" title={a.origen}>🛒 {a.origen}</span>
-                                                    <span className="text-[10px] font-bold text-slate-400 font-mono tracking-widest">→ PEDIR →</span>
-                                                    <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded text-[10px] uppercase font-bold truncate max-w-[90px] text-center" title={a.destino}>{a.destino}</span>
-                                                </>
-                                            )}
-                                        </div>
+                                        {isTraspaso ? (
+                                            <div className="mt-auto flex items-center justify-between bg-slate-50 p-2 rounded border border-slate-200">
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.origen}>{a.origen}</span>
+                                                <span className="text-[10px] font-bold text-slate-400 font-mono tracking-widest">→ {a.cantidad} →</span>
+                                                <span className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.destino}>{a.destino}</span>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-auto flex flex-col gap-1.5">
+                                                {/* Cantidad sugerida */}
+                                                <div className="flex items-center justify-between bg-red-50 border border-red-100 rounded px-3 py-1.5">
+                                                    <span className="text-[9px] font-bold uppercase tracking-widest text-red-500">Cantidad sugerida</span>
+                                                    {a.cantidad === "REVISAR" ? (
+                                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold uppercase tracking-wider">⚠ REVISAR</span>
+                                                    ) : (
+                                                        <span className="font-mono font-bold text-red-700 text-sm">{typeof a.cantidad === "number" ? a.cantidad.toLocaleString() : a.cantidad} uds.</span>
+                                                    )}
+                                                </div>
+                                                {/* Destino */}
+                                                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded px-3 py-1.5">
+                                                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Destino</span>
+                                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[9px] font-bold uppercase tracking-wider max-w-[160px] truncate text-right" title={a.destino}>{a.destino}</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             );

@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import XLSXStyle from "xlsx-js-style";
 import { SUCURSALES, STOCK_BAJO, MESES } from "./constants";
 
 export interface Alert {
@@ -167,7 +168,20 @@ export const processMasterFile = async (
                         const coberturaDiasGlobal = ventaPromedioMensualGlobal > 0 ? (exist / ventaPromedioMensualGlobal) * 30 : 9999;
 
                         if (exist <= 2 || coberturaDiasGlobal < 15) {
-                            alerts.push({ tipo: "COMPRA", producto: articulo, clave, origen: "PROVEEDOR", destino: "ABASTOS", cantidad: "REVISAR" });
+                            // Cantidad sugerida = promedio mensual x 2 meses de cobertura
+                            const cantidadSugeridaCompra: number | "REVISAR" = ventaPromedioMensualGlobal > 0
+                                ? Math.max(1, Math.ceil(ventaPromedioMensualGlobal * 2))
+                                : "REVISAR";
+                            // Destino = sucursal con mayor venta, o ABASTOS por defecto
+                            let destinoCompra = "ABASTOS";
+                            let maxVentaLocal = 0;
+                            Object.keys(groupDataBySucTotal).forEach(s => {
+                                if (groupDataBySucTotal[s] > maxVentaLocal) {
+                                    maxVentaLocal = groupDataBySucTotal[s];
+                                    destinoCompra = s;
+                                }
+                            });
+                            alerts.push({ tipo: "COMPRA", producto: articulo, clave, origen: "PROVEEDOR", destino: destinoCompra, cantidad: cantidadSugeridaCompra });
                         } else {
                             let highestSuc = "";
                             let maxVenta = 0;
@@ -195,44 +209,299 @@ export const processMasterFile = async (
     });
 };
 
+// =========================================================================
+// ESTILOS PREDEFINIDOS PARA EXCEL PROFESIONAL
+// =========================================================================
+
+type XLSXBorderStyle = "thin" | "medium" | "thick" | "dotted" | "hair" | "dashed" | "mediumDashed" | "dashDot" | "mediumDashDot" | "slantDashDot";
+
+const BRAND_BLUE = "1A3A5C";
+const BRAND_BLUE_LIGHT = "2F6EBA";
+const HEADER_BG = "0F2B4A";
+const HEADER_FG = "FFFFFF";
+const SECTION_BG = "E8F0FB";
+
+const BORDER_STYLE: XLSXBorderStyle = "thin";
+const mkBorder = (color = "C8D0DC") => ({
+    top: { style: BORDER_STYLE, color: { rgb: color } },
+    bottom: { style: BORDER_STYLE, color: { rgb: color } },
+    left: { style: BORDER_STYLE, color: { rgb: color } },
+    right: { style: BORDER_STYLE, color: { rgb: color } },
+});
+
+const mkCell = (value: any, style: any = {}): any => ({ v: value, s: style });
+
+const headerStyle = (bg = HEADER_BG): any => ({
+    fill: { fgColor: { rgb: bg } },
+    font: { bold: true, color: { rgb: HEADER_FG }, sz: 10, name: "Calibri" },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: mkBorder("3B5B7A"),
+});
+
+const dataStyleBase = (bg = "FFFFFF", fg = "1C1C1E"): any => ({
+    fill: { fgColor: { rgb: bg } },
+    font: { color: { rgb: fg }, sz: 9, name: "Calibri" },
+    alignment: { horizontal: "left", vertical: "center" },
+    border: mkBorder(),
+});
+
+const dataStyleNumber = (bg = "FFFFFF", fg = "1C1C1E"): any => ({
+    ...dataStyleBase(bg, fg),
+    alignment: { horizontal: "right", vertical: "center" },
+    numFmt: "#,##0",
+});
+
+// Paleta de estado de rotación
+const statusStyle = (status: string): any => {
+    if (status === "ROTACIÓN ACTIVA")  return { fill: { fgColor: { rgb: "D1FAE5" } }, font: { bold: true, color: { rgb: "065F46" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder("6EE7B7") };
+    if (status === "COMPRA URGENTE")   return { fill: { fgColor: { rgb: "FEE2E2" } }, font: { bold: true, color: { rgb: "991B1B" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder("FCA5A5") };
+    if (status === "NULA ROTACIÓN")    return { fill: { fgColor: { rgb: "FEF3C7" } }, font: { bold: true, color: { rgb: "92400E" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder("FCD34D") };
+    if (status === "SIN MOVIMIENTO")   return { fill: { fgColor: { rgb: "F1F5F9" } }, font: { bold: false, color: { rgb: "94A3B8" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder() };
+    return dataStyleBase();
+};
+
+// Paleta para tipo de alerta
+const alertTypeStyle = (tipo: string): any => {
+    if (tipo === "COMPRA")   return { fill: { fgColor: { rgb: "FEE2E2" } }, font: { bold: true, color: { rgb: "B91C1C" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder("FCA5A5") };
+    if (tipo === "TRASPASO") return { fill: { fgColor: { rgb: "DBEAFE" } }, font: { bold: true, color: { rgb: "1E40AF" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "center", vertical: "center" }, border: mkBorder("93C5FD") };
+    return dataStyleBase();
+};
+
+// Paleta para valor de stock numérico
+const stockNumStyle = (val: number, isEven: boolean): any => {
+    const rowBg = isEven ? "F8FAFC" : "FFFFFF";
+    if (val <= 0)          return { fill: { fgColor: { rgb: "FEE2E2" } }, font: { bold: true, color: { rgb: "B91C1C" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "right", vertical: "center" }, border: mkBorder("FCA5A5"), numFmt: "#,##0" };
+    if (val <= STOCK_BAJO) return { fill: { fgColor: { rgb: "FEF3C7" } }, font: { bold: true, color: { rgb: "92400E" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "right", vertical: "center" }, border: mkBorder("FCD34D"), numFmt: "#,##0" };
+    return { fill: { fgColor: { rgb: "D1FAE5" } }, font: { bold: true, color: { rgb: "065F46" }, sz: 9, name: "Calibri" }, alignment: { horizontal: "right", vertical: "center" }, border: mkBorder("6EE7B7"), numFmt: "#,##0" };
+};
+
+const colLetter = (idx: number): string => {
+    let letter = "";
+    idx += 1;
+    while (idx > 0) {
+        const rem = (idx - 1) % 26;
+        letter = String.fromCharCode(65 + rem) + letter;
+        idx = Math.floor((idx - 1) / 26);
+    }
+    return letter;
+};
+
 export const exportToExcel = (dataToExport: any[], filename: string, columnsToKeep?: string[]) => {
     if (!dataToExport || dataToExport.length === 0) return;
 
-    // 1. Filtrar las columnas si el usuario especificó cuáles quiere (Exportación Personalizada)
-    const finalData = columnsToKeep && columnsToKeep.length > 0
-        ? dataToExport.map(row => {
-            const newRow: Record<string, any> = {};
-            columnsToKeep.forEach(col => {
-                newRow[col] = row[col] !== undefined ? row[col] : ""; // Evitar undefined
-            });
-            return newRow;
-        })
-        : dataToExport;
+    // 1. Filtrar columnas
+    const keys: string[] = columnsToKeep && columnsToKeep.length > 0
+        ? columnsToKeep
+        : Object.keys(dataToExport[0] || {});
 
-    // 2. Crear la hoja
-    const ws = XLSX.utils.json_to_sheet(finalData);
+    const finalData = dataToExport.map(row => {
+        const newRow: Record<string, any> = {};
+        keys.forEach(col => { newRow[col] = row[col] !== undefined ? row[col] : ""; });
+        return newRow;
+    });
 
-    // 3. MEJORAR EL ASPECTO: Auto-ajuste del ancho de las columnas
-    const colWidths = [];
-    const keys = Object.keys(finalData[0] || {});
-    for (const key of keys) {
-        let max = key.length; // Tomar en cuenta el tamaño del título de la columna
-        for (const row of finalData) {
-            const val = row[key];
-            if (val !== undefined && val !== null) {
-                const len = String(val).length;
+    // Detectar si es una exportación de Alertas o Inventario
+    const isAlertas = keys.some(k => k === "Tipo de Alerta" || k === "Origen" || k === "Destino / Sucursal");
+
+    // 2. Construir la hoja con celdas estilizadas manualmente
+    const wb = XLSXStyle.utils.book_new();
+    const wsData: any[][] = [];
+
+    // ── FILA 0: TÍTULO GRANDE ──────────────────────────────────────────────
+    const titleText = isAlertas ? "REPORTE DE ALERTAS Y SUGERENCIAS" : "REPORTE DE INVENTARIO MAESTRO";
+    const titleRow: any[] = [mkCell(titleText, {
+        fill: { fgColor: { rgb: BRAND_BLUE } },
+        font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14, name: "Calibri" },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: mkBorder("1A3A5C"),
+    })];
+    // Celdas vacías para el merge
+    for (let i = 1; i < keys.length; i++) titleRow.push(mkCell("", { fill: { fgColor: { rgb: BRAND_BLUE } }, border: mkBorder("1A3A5C") }));
+    wsData.push(titleRow);
+
+    // ── FILA 1: METADATOS ─────────────────────────────────────────────────
+    const now = new Date();
+    const metaText = `Generado: ${now.toLocaleDateString("es-MX", { day: "2-digit", month: "long", year: "numeric" })}  |  Total de registros: ${finalData.length}`;
+    const metaRow: any[] = [mkCell(metaText, {
+        fill: { fgColor: { rgb: SECTION_BG } },
+        font: { italic: true, color: { rgb: "334155" }, sz: 9, name: "Calibri" },
+        alignment: { horizontal: "left", vertical: "center" },
+        border: mkBorder("CBD5E1"),
+    })];
+    for (let i = 1; i < keys.length; i++) metaRow.push(mkCell("", { fill: { fgColor: { rgb: SECTION_BG } }, border: mkBorder("CBD5E1") }));
+    wsData.push(metaRow);
+
+    // ── FILA 2: ENCABEZADOS ────────────────────────────────────────────────
+    const headerRow: any[] = keys.map(k => mkCell(k.toUpperCase(), headerStyle()));
+    wsData.push(headerRow);
+
+    // ── FILAS DE DATOS ────────────────────────────────────────────────────
+    finalData.forEach((row, rowIdx) => {
+        const isEven = rowIdx % 2 === 0;
+        const rowBg = isEven ? "F8FAFC" : "FFFFFF";
+
+        const dataRow: any[] = keys.map(col => {
+            const val = row[col];
+            const strVal = String(val ?? "");
+
+            // — Tipo de Alerta (columna especial)
+            if (col === "Tipo de Alerta") {
+                return mkCell(val, alertTypeStyle(strVal));
+            }
+
+            // — Estado de Rotación
+            if (col === "Estado_Rotacion" || col.startsWith("Rotacion_")) {
+                return mkCell(val, statusStyle(strVal));
+            }
+
+            // — Columna Cantidad en Alertas
+            if (col === "Cantidad") {
+                const numVal = typeof val === "number" ? val : parseFloat(strVal);
+                if (!isNaN(numVal) && strVal !== "REVISAR") {
+                    return mkCell(numVal, { ...dataStyleNumber(rowBg), font: { bold: true, color: { rgb: "1E40AF" }, sz: 9, name: "Calibri" } });
+                }
+                return mkCell(val ?? "", {
+                    fill: { fgColor: { rgb: "FEF3C7" } },
+                    font: { bold: true, color: { rgb: "92400E" }, sz: 9, name: "Calibri" },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: mkBorder(),
+                });
+            }
+
+            // — Columnas numéricas de stock (sucursales / Exist / Ventas)
+            if (typeof val === "number" || (!isNaN(parseFloat(strVal)) && strVal !== "" && col !== "Clave" && col !== "clave")) {
+                const numVal = typeof val === "number" ? val : parseFloat(strVal);
+                const isSucursalCol = SUCURSALES.some(s => col.toUpperCase().startsWith(s) || col.toUpperCase() === s);
+                const isExistCol = col === "Exist" || col === "exist" || col === "Ventas_Global";
+
+                if (isSucursalCol && !col.startsWith("Rotacion_")) {
+                    return mkCell(numVal, stockNumStyle(numVal, isEven));
+                }
+                if (isExistCol) {
+                    return mkCell(numVal, stockNumStyle(numVal, isEven));
+                }
+                return mkCell(numVal, dataStyleNumber(rowBg));
+            }
+
+            // — Clave (resaltada levemente)
+            if (col === "Clave" || col === "clave") {
+                return mkCell(val ?? "", {
+                    fill: { fgColor: { rgb: rowBg } },
+                    font: { bold: true, color: { rgb: BRAND_BLUE_LIGHT }, sz: 9, name: "Calibri" },
+                    alignment: { horizontal: "left", vertical: "center" },
+                    border: mkBorder(),
+                });
+            }
+
+            // — Origen / Destino en Alertas
+            if (col === "Origen") {
+                return mkCell(val ?? "", {
+                    fill: { fgColor: { rgb: rowBg } },
+                    font: { color: { rgb: "475569" }, sz: 9, name: "Calibri" },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: mkBorder(),
+                });
+            }
+            if (col === "Destino / Sucursal") {
+                return mkCell(val ?? "", {
+                    fill: { fgColor: { rgb: "EFF6FF" } },
+                    font: { bold: true, color: { rgb: "1D4ED8" }, sz: 9, name: "Calibri" },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: mkBorder("BFDBFE"),
+                });
+            }
+
+            // — Celda genérica
+            return mkCell(val ?? "", dataStyleBase(rowBg));
+        });
+
+        wsData.push(dataRow);
+    });
+
+    // ── FILA TOTALES (SUM) ────────────────────────────────────────────────
+    const TOTAL_BG = "0F2B4A";
+    const totalLabelStyle: any = {
+        fill: { fgColor: { rgb: TOTAL_BG } },
+        font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: mkBorder("3B5B7A"),
+    };
+    const totalSumStyle: any = {
+        fill: { fgColor: { rgb: TOTAL_BG } },
+        font: { bold: true, color: { rgb: "FFD700" }, sz: 10, name: "Calibri" },
+        alignment: { horizontal: "right", vertical: "center" },
+        border: mkBorder("3B5B7A"),
+        numFmt: "#,##0",
+    };
+
+    // Fila de Excel donde comienzan los datos (1-indexed): 1=título, 2=meta, 3=header, 4=datos
+    const dataExcelStartRow = 4;
+    const dataExcelEndRow = 3 + finalData.length;
+
+    // Detectar cuáles columnas son numéricas (tienen al menos 1 número real)
+    const numericColsSet = new Set<string>();
+    finalData.forEach(row => {
+        keys.forEach(k => {
+            const v = row[k];
+            if (typeof v === "number" && !isNaN(v)) numericColsSet.add(k);
+            else if (typeof v === "string" && !isNaN(parseFloat(v)) && v.trim() !== "" && k !== "Clave" && k !== "clave") numericColsSet.add(k);
+        });
+    });
+
+    const totalsRow: any[] = keys.map((col, colIdx) => {
+        if (colIdx === 0) return mkCell("TOTALES", totalLabelStyle);
+        if (numericColsSet.has(col) && col !== "Clave" && col !== "clave") {
+            const colAddr = colLetter(colIdx);
+            return {
+                f: `SUM(${colAddr}${dataExcelStartRow}:${colAddr}${dataExcelEndRow})`,
+                s: totalSumStyle,
+            };
+        }
+        return mkCell("", totalLabelStyle);
+    });
+    wsData.push(totalsRow);
+
+    // 3. Convertir array de arrays a worksheet
+    const ws = XLSXStyle.utils.aoa_to_sheet(wsData);
+
+    // 4. Merges para título y metadatos
+    ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: keys.length - 1 } }, // título
+        { s: { r: 1, c: 0 }, e: { r: 1, c: keys.length - 1 } }, // metadatos
+    ];
+
+    // 5. Alto de filas especiales
+    ws["!rows"] = [
+        { hpt: 30 }, // título
+        { hpt: 18 }, // metadatos
+        { hpt: 24 }, // encabezados
+    ];
+
+    // 6. Ancho de columnas auto-calculado
+    ws["!cols"] = keys.map(key => {
+        let max = key.length;
+        finalData.forEach(row => {
+            const v = row[key];
+            if (v !== undefined && v !== null) {
+                const len = String(v).length;
                 if (len > max) max = len;
             }
-        }
-        // Añadir padding visual (+2), pero limitar el máximo a 50 para no hacer columnas gigantes
-        colWidths.push({ wch: Math.min(max + 2, 50) });
-    }
-    ws['!cols'] = colWidths; // Inyectar los anchos calculados
+        });
+        // Columnas especiales más anchas
+        if (key === "Artículo" || key === "Producto") return { wch: Math.min(max + 2, 45) };
+        return { wch: Math.min(max + 2, 30) };
+    });
 
-    // 4. Crear el libro y exportar
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Datos Exportados");
-    XLSX.writeFile(wb, filename);
+    // 7. AutoFilter en la fila de encabezados (row 3 = índice 2)
+    const lastCol = colLetter(keys.length - 1);
+    ws["!autofilter"] = { ref: `A3:${lastCol}3` };
+
+    // 8. Freeze pane: congelar las 3 primeras filas (título + meta + headers)
+    ws["!freeze"] = { xSplit: 0, ySplit: 3 };
+
+    // 9. Escribir el archivo
+    XLSXStyle.utils.book_append_sheet(wb, ws, isAlertas ? "Alertas" : "Inventario");
+    XLSXStyle.writeFile(wb, filename);
 };
 
 
@@ -429,13 +698,18 @@ export const procesarRotacionCruzada = async (
                 ? sucursalesConVenta[0]
                 : (sucursalesConVenta.length > 0 ? sucursalesConVenta.join(", ") : "VARIAS");
 
+            // Cantidad sugerida = total de ventas del período (reposición completa)
+            const cantidadSugeridaCruzada: number | "REVISAR" = ventasDelProducto.totalGlobal > 0
+                ? Math.max(1, Math.ceil(ventasDelProducto.totalGlobal))
+                : "REVISAR";
+
             alertasGeneradas.push({
                 tipo: "COMPRA",
                 producto: articulo,
                 clave: clave,
                 origen: "PROVEEDOR",
                 destino: destinoStr,
-                cantidad: "REVISAR",
+                cantidad: cantidadSugeridaCruzada,
                 sucursales: sucursalesConVenta
             });
             visualRaw["Estado_Rotacion"] = "COMPRA URGENTE";
