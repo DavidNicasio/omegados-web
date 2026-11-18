@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Home, Upload, Bell, Package, RefreshCcw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { useAppContext } from "../AppContext";
 
@@ -45,6 +46,7 @@ export const Sidebar: React.FC = () => {
         setFileName(null);
         setConfirmClear(false);
         setActiveView("inicio");
+        toast.success("Datos borrados. Puedes cargar archivos nuevos cuando quieras.");
     };
 
     const renderItem = (item: NavItem) => {
