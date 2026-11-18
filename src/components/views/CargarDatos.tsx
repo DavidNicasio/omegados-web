@@ -10,7 +10,8 @@ import {
     type ResumenVentas,
 } from "../../lib/excel";
 import { MESES } from "../../lib/constants";
-import { formatearFechaLarga, nombreSucursal } from "../../lib/utils";
+import { formatearFechaLarga, huellaArchivo, nombreSucursal } from "../../lib/utils";
+import ActualizarSinEmpezar from "./ActualizarSinEmpezar";
 import { useAppContext } from "../../AppContext";
 
 type Revision<T> =
@@ -164,7 +165,8 @@ const Leyendo: React.FC<{ texto: string }> = ({ texto }) => (
 // Pantalla
 // ---------------------------------------------------------------------------
 const CargarDatos: React.FC = () => {
-    const { masterData, loadInfo, setMasterData, setAlerts, setCols, setLoadInfo, setActiveView } = useAppContext();
+    const { masterData, loadInfo, setMasterData, setAlerts, setCols, setLoadInfo, setHuellasVentas, setActiveView } =
+        useAppContext();
 
     const [fileExistencias, setFileExistencias] = useState<File | null>(null);
     const [fileVentas, setFileVentas] = useState<File | null>(null);
@@ -243,6 +245,8 @@ const CargarDatos: React.FC = () => {
             setAlerts(alertas);
             setCols(rawColumns);
             setLoadInfo({ existenciasName: fileExistencias.name, ventasName: fileVentas.name, loadedAt: Date.now() });
+            // Al reemplazar los datos, la lista de archivos de ventas ya sumados empieza de nuevo
+            setHuellasVentas([{ huella: huellaArchivo(fileVentas), nombre: fileVentas.name, fecha: Date.now() }]);
 
             toast.success(
                 `Listo: ${plural(traspasos, "traspaso", "traspasos")} y ${plural(compras, "compra", "compras")}`,
@@ -426,6 +430,8 @@ const CargarDatos: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {hayDatos && <ActualizarSinEmpezar />}
         </div>
     );
 };

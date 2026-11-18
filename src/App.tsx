@@ -6,7 +6,6 @@ import Inicio from "./components/views/Inicio";
 import CargarDatos from "./components/views/CargarDatos";
 import Inventario from "./components/views/Inventario";
 import Alertas from "./components/views/Alertas";
-import Sync from "./components/views/Sync"; // <-- Aquí volvemos a importar Sync
 
 const AppContent: React.FC = () => {
     const { activeView } = useAppContext();
@@ -21,8 +20,6 @@ const AppContent: React.FC = () => {
                 return <Inventario />;
             case "alertas":
                 return <Alertas />;
-            case "sync":
-                return <Sync />; // <-- Aquí le decimos que si la vista es "sync", muestre el componente
             default:
                 return <Inicio />;
         }

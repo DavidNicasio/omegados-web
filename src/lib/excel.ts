@@ -16,7 +16,8 @@ export interface MasterRow {
     clave: string;
     articulo: string;
     exist: number;
-    sucursales: Record<string, number>;
+    sucursales: Record<string, number>; // existencia por sucursal
+    ventasPorSucursal: Record<string, number>; // ventas acumuladas por sucursal
     raw: Record<string, any>;
     [key: string]: any;
 }
@@ -161,7 +162,7 @@ export const processMasterFile = async (
                     visualRaw["Clave"] = clave;
                     visualRaw["Exist"] = exist;
 
-                    processedList.push({ clave, articulo, exist, sucursales: sucData, raw: visualRaw });
+                    processedList.push({ clave, articulo, exist, sucursales: sucData, ventasPorSucursal: {}, raw: visualRaw });
 
                     if (isMultiIndex || (row["Exist"] !== undefined && String(row["Exist"]).trim() !== "")) {
                         const ventaPromedioMensualGlobal = totalGeneral / numMeses;
@@ -569,6 +570,8 @@ const esClaveIgnoradaExistencias = (clave: string) =>
     !clave || clave === "000XXX" || clave.toLowerCase().includes("clave");
 const esClaveIgnoradaVentas = (clave: string) => !clave || clave === "000XXX";
 
+const COLUMNAS_EXISTENCIA_GENERAL = ["general", "total", "existencia", "existencias", "existencia general", "exist"];
+
 const aNumero = (v: any): number => parseFloat(String(v ?? "").replace(/[^0-9.-]/g, "")) || 0;
 
 // Total de una fila de ventas: usa la columna de total si existe, si no suma los meses
@@ -782,124 +785,171 @@ export const revisarCruce = (
     return { errores, avisos };
 };
 
-export const procesarRotacionCruzada = async (
-    fileVentas: File,
-    fileExistencias: File
-): Promise<{ data: MasterRow[]; alertas: Alert[]; rawColumns: string[] }> => {
+// =========================================================================
+// CÁLCULO DE ROTACIÓN Y ALERTAS (función pura, se usa al cargar y al actualizar)
+// =========================================================================
 
-    // 1. Leer Ventas
-    const rawVentas = await leerPrimeraHoja(fileVentas);
+/**
+ * A partir de existencias por sucursal (`sucursales`), existencia global (`exist`) y ventas por
+ * sucursal (`ventasPorSucursal`) de cada producto, calcula los estados de rotación y las alertas.
+ * No modifica las filas que recibe: devuelve filas nuevas.
+ */
+export const recalcularRotacionYAlertas = (rows: MasterRow[]): { data: MasterRow[]; alertas: Alert[] } => {
+    const alertas: Alert[] = [];
 
-    // clave -> { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: { "ABASTOS": 10 } }
-    const diccionarioVentas: Record<string, any> = {};
+    const data = rows.map((row) => {
+        const ventas = row.ventasPorSucursal || {};
+        const { clave, articulo, exist } = row;
 
-    rawVentas.forEach((row) => {
+        // Ventas totales y sucursal que más vende
+        let totalGlobal = 0;
+        let maxVentas = 0;
+        let maxSucursal = "";
+        Object.keys(ventas).forEach((s) => {
+            const v = ventas[s] || 0;
+            totalGlobal += v;
+            if (v > maxVentas) {
+                maxVentas = v;
+                maxSucursal = s;
+            }
+        });
+
+        const raw: Record<string, any> = {
+            ...row.raw,
+            Clave: clave,
+            Artículo: articulo,
+            Ventas_Global: totalGlobal,
+        };
+
+        Object.keys(row.sucursales).forEach((sucNorm) => {
+            const val = row.sucursales[sucNorm];
+            raw[sucNorm] = val; // el stock va en la columna para que la tabla pinte colores
+            const ventaEnEstaSucursal = ventas[sucNorm] || 0;
+
+            // Nula rotación: hay existencia aquí, no se vende aquí, y otra sucursal sí lo vende -> traspaso
+            if (val > 0 && ventaEnEstaSucursal === 0 && maxVentas > 0 && maxSucursal !== sucNorm) {
+                alertas.push({
+                    tipo: "TRASPASO",
+                    producto: articulo,
+                    clave,
+                    origen: sucNorm, // de la sucursal que no lo vende
+                    destino: maxSucursal, // a la que más lo vende
+                    cantidad: val, // el stock estancado
+                });
+            }
+
+            // Estado de rotación individual por sucursal
+            if (val <= 0 && ventaEnEstaSucursal > 0) {
+                raw[`Rotacion_${sucNorm}`] = "COMPRA URGENTE";
+            } else if (val > 0 && ventaEnEstaSucursal === 0) {
+                raw[`Rotacion_${sucNorm}`] = "NULA ROTACIÓN";
+            } else if (val === 0 && ventaEnEstaSucursal === 0) {
+                raw[`Rotacion_${sucNorm}`] = "SIN MOVIMIENTO";
+            } else {
+                raw[`Rotacion_${sucNorm}`] = "ROTACIÓN ACTIVA";
+            }
+        });
+
+        // Estado global y regla de compra (se vende pero no hay existencia)
+        if (exist <= 0 && totalGlobal > 0) {
+            const sucursalesConVenta = Object.keys(ventas).filter((s) => (ventas[s] || 0) > 0);
+            const destinoStr =
+                sucursalesConVenta.length === 1
+                    ? sucursalesConVenta[0]
+                    : sucursalesConVenta.length > 0
+                      ? sucursalesConVenta.join(", ")
+                      : "VARIAS";
+
+            alertas.push({
+                tipo: "COMPRA",
+                producto: articulo,
+                clave,
+                origen: "PROVEEDOR",
+                destino: destinoStr,
+                // Cantidad sugerida = total de ventas del período (reposición completa)
+                cantidad: Math.max(1, Math.ceil(totalGlobal)),
+                sucursales: sucursalesConVenta,
+            });
+            raw["Estado_Rotacion"] = "COMPRA URGENTE";
+        } else if (exist > 0 && totalGlobal === 0) {
+            raw["Estado_Rotacion"] = "NULA ROTACIÓN";
+        } else {
+            raw["Estado_Rotacion"] = "ROTACIÓN ACTIVA";
+        }
+        raw["Exist"] = exist;
+
+        return { ...row, raw };
+    });
+
+    return { data, alertas };
+};
+
+// Suma las ventas de un archivo por clave y sucursal.
+// Si se da `sucursalFija`, el archivo se asigna a esa sucursal (y si trae columna de sucursal, solo cuentan sus filas).
+const agruparVentas = (
+    rows: any[],
+    sucursalFija?: string
+): { porClave: Record<string, Record<string, number>>; filasUsadas: number } => {
+    const porClave: Record<string, Record<string, number>> = {};
+    let filasUsadas = 0;
+
+    rows.forEach((row) => {
         const keys = Object.keys(row);
         const claveKey = colClaveVentas(keys);
         const clave = cleanClave(claveKey ? row[claveKey] : "");
         if (esClaveIgnoradaVentas(clave)) return;
 
         const sucursalKey = colSucursalVentas(keys);
-        const sucursal = normSucursal(String((sucursalKey ? row[sucursalKey] : "") || ""));
+        const sucursalFila = normSucursal(String((sucursalKey ? row[sucursalKey] : "") || ""));
+        if (sucursalFija && sucursalKey && sucursalFila !== sucursalFija) return;
+        const sucursal = sucursalFija || sucursalFila;
 
-        // Total de la fila: columna de total o suma de meses
         const total = totalFilaVentas(row, keys);
-
-        if (!diccionarioVentas[clave]) {
-            diccionarioVentas[clave] = { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: {} };
-        }
-
-        diccionarioVentas[clave].sucursales[sucursal] = (diccionarioVentas[clave].sucursales[sucursal] || 0) + total;
-        diccionarioVentas[clave].totalGlobal += total;
-
-        // Registrar quién vende más para los traspasos futuros
-        if (diccionarioVentas[clave].sucursales[sucursal] > diccionarioVentas[clave].maxVentas) {
-            diccionarioVentas[clave].maxVentas = diccionarioVentas[clave].sucursales[sucursal];
-            diccionarioVentas[clave].maxSucursal = sucursal;
-        }
+        if (!porClave[clave]) porClave[clave] = {};
+        porClave[clave][sucursal] = (porClave[clave][sucursal] || 0) + total;
+        filasUsadas++;
     });
+
+    return { porClave, filasUsadas };
+};
+
+export const procesarRotacionCruzada = async (
+    fileVentas: File,
+    fileExistencias: File
+): Promise<{ data: MasterRow[]; alertas: Alert[]; rawColumns: string[] }> => {
+    // 1. Leer Ventas
+    const { porClave: ventasPorClave } = agruparVentas(await leerPrimeraHoja(fileVentas));
 
     // 2. Leer Existencias
     const rawExist = await leerPrimeraHoja(fileExistencias);
 
     const productosList: MasterRow[] = [];
-    const alertasGeneradas: Alert[] = [];
 
     // Columnas que enviaremos a la tabla
-    const rawColumns = ["Clave", "Artículo", "Exist", "Ventas_Global", "Estado_Rotacion", ...SUCURSALES.map(s => s.toUpperCase())];
-
-    // PARA ASEGURAR QUE SE EXPORTEN LAS ROTACIONES:
-    SUCURSALES.forEach(s => rawColumns.push(`Rotacion_${s.toUpperCase()}`));
+    const rawColumns = ["Clave", "Artículo", "Exist", "Ventas_Global", "Estado_Rotacion", ...SUCURSALES.map((s) => s.toUpperCase())];
+    SUCURSALES.forEach((s) => rawColumns.push(`Rotacion_${s.toUpperCase()}`));
 
     rawExist.forEach((row) => {
-        // Buscar llaves correctas independientemente de espacios
         const keysRow = Object.keys(row);
         const claveKey = colClaveExistencias(keysRow);
         const articuloKey = colArticuloExistencias(keysRow);
-
         if (!claveKey || !articuloKey) return;
 
         const clave = cleanClave(row[claveKey]);
         const articulo = String(row[articuloKey]).trim();
-
         if (esClaveIgnoradaExistencias(clave)) return;
-
-        const ventasDelProducto = diccionarioVentas[clave] || { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: {} };
 
         let existGlobal = 0;
         const stockSucursales: Record<string, number> = {};
 
-        const visualRaw: Record<string, any> = {
-            Clave: clave,
-            Artículo: articulo,
-            Ventas_Global: ventasDelProducto.totalGlobal
-        };
-
-        // Procesar inventario por sucursal
-        Object.keys(row).forEach((k) => {
+        keysRow.forEach((k) => {
             const col = k.toLowerCase().trim();
-            const val = parseFloat(String(row[k] ?? "").replace(/[^0-9.-]/g, "")) || 0;
-
-            if (col === "general" || col === "total" || col === "existencia" || col === "existencias" || col === "existencia general" || col === "exist") {
+            const val = aNumero(row[k]);
+            if (COLUMNAS_EXISTENCIA_GENERAL.includes(col)) {
                 existGlobal = val;
             } else {
                 const sucNorm = normSucursal(k);
-                if (SUCURSALES.map(s => s.toUpperCase()).includes(sucNorm)) {
-                    stockSucursales[sucNorm] = val;
-                    visualRaw[sucNorm] = val; // Poner el stock en la columna para que la tabla pinte colores
-
-                    // ----------------------------------------------------
-                    // REGLA DEL CLIENTE: EVALUACIÓN DE NULA ROTACIÓN
-                    // ----------------------------------------------------
-                    const ventaEnEstaSucursal = ventasDelProducto.sucursales[sucNorm] || 0;
-
-                    if (val > 0 && ventaEnEstaSucursal === 0) {
-                        // NULA ROTACIÓN = Revisar quién vende y hacer traspaso
-                        if (ventasDelProducto.maxVentas > 0 && ventasDelProducto.maxSucursal !== sucNorm) {
-                            alertasGeneradas.push({
-                                tipo: "TRASPASO",
-                                producto: articulo,
-                                clave: clave,
-                                origen: sucNorm, // De la sucursal que no lo vende
-                                destino: ventasDelProducto.maxSucursal, // A la sucursal que más lo vende
-                                cantidad: val // Mandamos el stock estancado
-                            });
-                        }
-                    }
-
-                    // ----------------------------------------------------
-                    // PUNTO 1: ESTADO DE ROTACIÓN INDIVIDUAL POR SUCURSAL
-                    // ----------------------------------------------------
-                    if (val <= 0 && ventaEnEstaSucursal > 0) {
-                        visualRaw[`Rotacion_${sucNorm}`] = "COMPRA URGENTE";
-                    } else if (val > 0 && ventaEnEstaSucursal === 0) {
-                        visualRaw[`Rotacion_${sucNorm}`] = "NULA ROTACIÓN";
-                    } else if (val === 0 && ventaEnEstaSucursal === 0) {
-                        visualRaw[`Rotacion_${sucNorm}`] = "SIN MOVIMIENTO"; // Ni se vende, ni hay stock
-                    } else {
-                        visualRaw[`Rotacion_${sucNorm}`] = "ROTACIÓN ACTIVA";
-                    }
-                }
+                if (SUCURSALES_UP.includes(sucNorm)) stockSucursales[sucNorm] = val;
             }
         });
 
@@ -907,46 +957,141 @@ export const procesarRotacionCruzada = async (
             existGlobal = Object.values(stockSucursales).reduce((a, b) => a + b, 0);
         }
 
-        // Regla de Compra (Se vende pero no hay stock)
-        if (existGlobal <= 0 && ventasDelProducto.totalGlobal > 0) {
-            const sucursalesConVenta = Object.keys(ventasDelProducto.sucursales)
-                .filter(s => (ventasDelProducto.sucursales[s] || 0) > 0);
-
-            const destinoStr = sucursalesConVenta.length === 1
-                ? sucursalesConVenta[0]
-                : (sucursalesConVenta.length > 0 ? sucursalesConVenta.join(", ") : "VARIAS");
-
-            // Cantidad sugerida = total de ventas del período (reposición completa)
-            const cantidadSugeridaCruzada: number | "REVISAR" = ventasDelProducto.totalGlobal > 0
-                ? Math.max(1, Math.ceil(ventasDelProducto.totalGlobal))
-                : "REVISAR";
-
-            alertasGeneradas.push({
-                tipo: "COMPRA",
-                producto: articulo,
-                clave: clave,
-                origen: "PROVEEDOR",
-                destino: destinoStr,
-                cantidad: cantidadSugeridaCruzada,
-                sucursales: sucursalesConVenta
-            });
-            visualRaw["Estado_Rotacion"] = "COMPRA URGENTE";
-        } else if (existGlobal > 0 && ventasDelProducto.totalGlobal === 0) {
-            visualRaw["Estado_Rotacion"] = "NULA ROTACIÓN";
-        } else {
-            visualRaw["Estado_Rotacion"] = "ROTACIÓN ACTIVA";
-        }
-
-        visualRaw["Exist"] = existGlobal;
-
         productosList.push({
             clave,
             articulo,
             exist: existGlobal,
             sucursales: stockSucursales,
-            raw: visualRaw
+            ventasPorSucursal: { ...(ventasPorClave[clave] || {}) },
+            raw: {},
         });
     });
 
-    return { data: productosList, alertas: alertasGeneradas, rawColumns };
+    const { data, alertas } = recalcularRotacionYAlertas(productosList);
+    return { data, alertas, rawColumns };
+};
+
+// =========================================================================
+// ACTUALIZAR SIN EMPEZAR DE CERO
+// =========================================================================
+
+export interface ResultadoActualizacion {
+    data: MasterRow[];
+    alertas: Alert[];
+    actualizados: number; // productos que cambiaron
+    noEncontradas: string[]; // claves del archivo que no están en los datos cargados
+}
+
+/** Actualiza las existencias de los productos ya cargados. `sucursal` es "TODAS" o el nombre normalizado de una sucursal. */
+export const actualizarExistencias = async (
+    file: File,
+    master: MasterRow[],
+    sucursal: string
+): Promise<ResultadoActualizacion> => {
+    const rows = await leerPrimeraHoja(file);
+    if (rows.length === 0) throw new Error("El archivo está vacío.");
+    const keys = unirColumnas(rows);
+
+    const claveKey = colClaveExistencias(keys);
+    if (!claveKey) throw new Error("Falta la columna Clave.");
+
+    // Columnas de existencia a leer: [sucursal normalizada, columna del archivo]
+    const columnas: [string, string][] = [];
+    let colGeneral: string | undefined;
+    if (sucursal === "TODAS") {
+        keys.forEach((k) => {
+            const n = normSucursal(k);
+            if (SUCURSALES_UP.includes(n)) columnas.push([n, k]);
+        });
+        colGeneral = keys.find((k) => COLUMNAS_EXISTENCIA_GENERAL.includes(k.toLowerCase().trim()));
+        if (columnas.length === 0) throw new Error("No encontramos columnas de sucursales en este archivo.");
+    } else {
+        const col =
+            keys.find((k) => normSucursal(k) === sucursal) ||
+            keys.find((k) => COLUMNAS_EXISTENCIA_GENERAL.includes(k.toLowerCase().trim()));
+        if (!col) throw new Error("No encontramos la columna de existencia (Existencia, General o Total).");
+        columnas.push([sucursal, col]);
+    }
+
+    const nuevos: Record<string, any> = {};
+    rows.forEach((row) => {
+        const clave = cleanClave(row[claveKey]);
+        if (!esClaveIgnoradaExistencias(clave)) nuevos[clave] = row;
+    });
+
+    const enMaster = new Set<string>();
+    let actualizados = 0;
+    const nuevoMaster = master.map((p) => {
+        enMaster.add(p.clave);
+        const fila = nuevos[p.clave];
+        if (!fila) return p;
+
+        const sucursales = { ...p.sucursales };
+        columnas.forEach(([suc, col]) => {
+            sucursales[suc] = aNumero(fila[col]);
+        });
+
+        let exist: number;
+        if (sucursal === "TODAS") {
+            const general = colGeneral ? aNumero(fila[colGeneral]) : 0;
+            exist = general !== 0 ? general : Object.values(sucursales).reduce((a, b) => a + b, 0);
+        } else {
+            // Solo cambió una sucursal: ajustamos la existencia global por la diferencia
+            exist = Math.max(0, p.exist + (sucursales[sucursal] - (p.sucursales[sucursal] || 0)));
+        }
+        actualizados++;
+        return { ...p, sucursales, exist };
+    });
+
+    const noEncontradas = Object.keys(nuevos).filter((c) => !enMaster.has(c));
+    const { data, alertas } = recalcularRotacionYAlertas(nuevoMaster);
+    return { data, alertas, actualizados, noEncontradas };
+};
+
+/** Suma las ventas de un archivo a los datos cargados. `sucursal` es "TODAS" o el nombre normalizado de una sucursal. */
+export const sumarVentas = async (
+    file: File,
+    master: MasterRow[],
+    sucursal: string
+): Promise<ResultadoActualizacion> => {
+    const rows = await leerPrimeraHoja(file);
+    if (rows.length === 0) throw new Error("El archivo está vacío.");
+    const keys = unirColumnas(rows);
+
+    if (!colClaveVentas(keys)) throw new Error("Falta la columna Clave.");
+    if (sucursal === "TODAS" && !colSucursalVentas(keys)) {
+        throw new Error("Este archivo no trae columna Sucursal. Elige de qué sucursal es el archivo.");
+    }
+    if (!colTotalVentas(keys) && !MESES.some((m) => colMes(keys, m))) {
+        throw new Error("No encontramos las columnas de meses (ENE, FEB, MAR…) ni una columna de total.");
+    }
+
+    const { porClave, filasUsadas } = agruparVentas(rows, sucursal === "TODAS" ? undefined : sucursal);
+    if (filasUsadas === 0) throw new Error("No encontramos ventas de esa sucursal en el archivo.");
+
+    const enMaster = new Set<string>();
+    let actualizados = 0;
+    const nuevoMaster = master.map((p) => {
+        enMaster.add(p.clave);
+        const nuevas = porClave[p.clave];
+        if (!nuevas) return p;
+        const ventasPorSucursal = { ...p.ventasPorSucursal };
+        Object.keys(nuevas).forEach((s) => {
+            ventasPorSucursal[s] = (ventasPorSucursal[s] || 0) + nuevas[s];
+        });
+        actualizados++;
+        return { ...p, ventasPorSucursal };
+    });
+
+    const noEncontradas = Object.keys(porClave).filter((c) => !enMaster.has(c));
+    const { data, alertas } = recalcularRotacionYAlertas(nuevoMaster);
+    return { data, alertas, actualizados, noEncontradas };
+};
+
+/** Descarga un Excel sencillo con las claves que no se encontraron */
+export const descargarClavesNoEncontradas = (claves: string[], nombreArchivo: string) => {
+    const ws = XLSX.utils.aoa_to_sheet([["Clave"], ...claves.map((c) => [c])]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Claves no encontradas");
+    XLSX.writeFile(wb, nombreArchivo);
 };

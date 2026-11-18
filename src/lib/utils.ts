@@ -39,3 +39,8 @@ export function nombreSucursal(s: string): string {
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join(" ");
 }
+
+/** Identifica un archivo por nombre, tamaño y fecha de modificación */
+export function huellaArchivo(f: File): string {
+  return `${f.name}|${f.size}|${f.lastModified}`;
+}

@@ -7,6 +7,13 @@ export interface LoadInfo {
     loadedAt: number; // marca de tiempo (ms)
 }
 
+// Huella de un archivo de ventas ya sumado (para no sumarlo dos veces sin querer)
+export interface HuellaVentas {
+    huella: string; // nombre|tamaño|última modificación
+    nombre: string;
+    fecha: number; // cuándo se cargó (ms)
+}
+
 interface AppState {
     activeView: string;
     setActiveView: (view: string) => void;
@@ -18,6 +25,8 @@ interface AppState {
     setCols: (cols: string[]) => void;
     loadInfo: LoadInfo | null;
     setLoadInfo: (info: LoadInfo | null) => void;
+    huellasVentas: HuellaVentas[];
+    setHuellasVentas: (h: HuellaVentas[]) => void;
     isDBLoaded: boolean;
 }
 
@@ -56,6 +65,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [alerts, setAlerts] = useState<Alert[]>([]);
     const [cols, setCols] = useState<string[]>([]);
     const [loadInfo, setLoadInfo] = useState<LoadInfo | null>(null);
+    const [huellasVentas, setHuellasVentas] = useState<HuellaVentas[]>([]);
     const [isDBLoaded, setIsDBLoaded] = useState(false);
 
     // Cargar datos desde la base de datos al iniciar la app
@@ -66,11 +76,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const savedAlerts = await loadFromDB("alerts");
                 const savedCols = await loadFromDB("cols");
                 const savedLoadInfo = await loadFromDB("loadInfo");
+                const savedHuellas = await loadFromDB("huellasVentas");
 
                 if (savedMaster) setMasterData(savedMaster);
                 if (savedAlerts) setAlerts(savedAlerts);
                 if (savedCols) setCols(savedCols);
                 if (savedLoadInfo) setLoadInfo(savedLoadInfo);
+                if (savedHuellas) setHuellasVentas(savedHuellas);
             } catch (error) {
                 console.error("Error cargando la DB:", error);
             } finally {
@@ -87,8 +99,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             saveToDB("alerts", alerts);
             saveToDB("cols", cols);
             saveToDB("loadInfo", loadInfo);
+            saveToDB("huellasVentas", huellasVentas);
         }
-    }, [masterData, alerts, cols, loadInfo, isDBLoaded]);
+    }, [masterData, alerts, cols, loadInfo, huellasVentas, isDBLoaded]);
 
     return (
         <AppContext.Provider
@@ -103,6 +116,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setCols,
                 loadInfo,
                 setLoadInfo,
+                huellasVentas,
+                setHuellasVentas,
                 isDBLoaded,
             }}
         >

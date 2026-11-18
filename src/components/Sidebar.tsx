@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Home, Upload, Bell, Package, RefreshCcw } from "lucide-react";
+import { Home, Upload, Bell, Package } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatearFechaCorta } from "../lib/utils";
@@ -19,9 +19,6 @@ const NAV_ITEMS: NavItem[] = [
     { id: "inventario", label: "3. Inventario", icon: Package },
 ];
 
-// Se usa después de la primera carga, por eso va aparte
-const UPDATE_ITEM: NavItem = { id: "sync", label: "Actualizar datos", icon: RefreshCcw };
-
 export const Sidebar: React.FC = () => {
     const {
         activeView,
@@ -33,6 +30,7 @@ export const Sidebar: React.FC = () => {
         setCols,
         loadInfo,
         setLoadInfo,
+        setHuellasVentas,
     } = useAppContext();
 
     const [confirmClear, setConfirmClear] = useState(false);
@@ -44,6 +42,7 @@ export const Sidebar: React.FC = () => {
         setAlerts([]);
         setCols([]);
         setLoadInfo(null);
+        setHuellasVentas([]);
         setConfirmClear(false);
         setActiveView("inicio");
         toast.success("Datos borrados. Puedes cargar archivos nuevos cuando quieras.");
@@ -96,9 +95,6 @@ export const Sidebar: React.FC = () => {
             <nav aria-label="Secciones" className="flex-1 flex flex-col gap-1">
                 {NAV_ITEMS.map(renderItem)}
 
-                <div className="my-3 border-t border-slate-800" />
-                <p className="px-3 pb-1 text-xs text-slate-400">Cuando ya tienes datos</p>
-                {renderItem(UPDATE_ITEM)}
             </nav>
 
             {/* Estado de los datos */}
