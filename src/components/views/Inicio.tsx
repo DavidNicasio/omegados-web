@@ -1,284 +1,235 @@
-import React, { useState, useMemo } from "react";
-import {
-    Package,
-    ArrowRightLeft,
-    ShoppingCart,
-    TrendingUp,
-    Store
-} from "lucide-react";
-import { useAppContext } from "../../AppContext";
-import { SUCURSALES } from "../../lib/constants";
-import {
-    PieChart,
-    Pie,
-    Cell,
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    Tooltip,
-    ResponsiveContainer,
-    Legend
-} from "recharts";
+import React, { useMemo } from "react";
+import { ArrowRightLeft, ChevronRight, Package, ShoppingCart, Store, TrendingUp, Upload } from "lucide-react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { useAppContext, type PestanaAlertas } from "../../AppContext";
+import { contarPendientes } from "../../lib/alertas";
+import { ESTADOS, ORDEN_ESTADOS, type EstadoRotacion } from "../../lib/estados";
+import { formatearFechaLarga, limpiarNombreProducto } from "../../lib/utils";
 
-const COLORS = {
-    "ROTACIÓN ACTIVA": "#22c55e", // Verde
-    "NULA ROTACIÓN": "#f59e0b",   // Ambar
-    "COMPRA URGENTE": "#ef4444",  // Rojo
-    "SIN MOVIMIENTO": "#94a3b8",  // Gris
-};
+const num = (n: number) => n.toLocaleString("es-MX");
+
+// Tarjeta grande que lleva a Alertas
+const TarjetaPendientes: React.FC<{
+    titulo: string;
+    cantidad: number;
+    ayuda: string;
+    icono: React.ReactNode;
+    onClick: () => void;
+}> = ({ titulo, cantidad, ayuda, icono, onClick }) => (
+    <button
+        type="button"
+        onClick={onClick}
+        className="min-h-[44px] text-left bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center gap-4 hover:border-[#2563EB] hover:shadow transition-colors focus:outline-none focus:ring-2 focus:ring-[#2563EB]"
+    >
+        <div className="p-3 bg-blue-50 text-[#2563EB] rounded-lg shrink-0" aria-hidden="true">
+            {icono}
+        </div>
+        <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-800">{titulo}</p>
+            <p className="text-3xl font-bold text-slate-900 leading-tight">{num(cantidad)}</p>
+            <p className="text-sm text-[#475569]">{ayuda}</p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-[#475569] shrink-0" aria-hidden="true" />
+    </button>
+);
 
 const Inicio: React.FC = () => {
-    const { masterData, alerts } = useAppContext();
-    const [filtroSucursal, setFiltroSucursal] = useState("GLOBAL");
+    const { masterData, alerts, alertasHechas, loadInfo, setActiveView, setAlertasPestana } = useAppContext();
 
-    // Cálculos dinámicos basados en la sucursal seleccionada
-    const dashboardData = useMemo(() => {
+    const irAAlertas = (pestana: PestanaAlertas) => {
+        setAlertasPestana(pestana);
+        setActiveView("alertas");
+    };
+
+    const pendientes = useMemo(() => contarPendientes(alerts, alertasHechas), [alerts, alertasHechas]);
+
+    const datos = useMemo(() => {
         if (!masterData || masterData.length === 0) return null;
 
-        let totalArticulos = 0;
-        let piezasFisicas = 0;
-
-        // Contadores para el gráfico de Dona (Salud de Inventario)
-        const conteoSalud = {
+        let conExistencia = 0;
+        let piezas = 0;
+        const sucursales = new Set<string>();
+        const conteo: Record<EstadoRotacion, number> = {
             "ROTACIÓN ACTIVA": 0,
             "NULA ROTACIÓN": 0,
             "COMPRA URGENTE": 0,
             "SIN MOVIMIENTO": 0,
         };
 
-        // Top 5 Productos con más stock
-        let productosStock: { nombre: string; stock: number }[] = [];
-
         masterData.forEach((item) => {
-            totalArticulos++;
-
-            // Determinar qué columna leer según el filtro
-            if (filtroSucursal === "GLOBAL") {
-                piezasFisicas += item.exist || 0;
-                const estado = item.raw["Estado_Rotacion"] as keyof typeof conteoSalud || "SIN MOVIMIENTO";
-                if (conteoSalud[estado] !== undefined) conteoSalud[estado]++;
-
-                productosStock.push({
-                    nombre: item.articulo.substring(0, 20) + "...",
-                    stock: item.exist || 0
-                });
-            } else {
-                const stockLocal = item.sucursales[filtroSucursal] || 0;
-                piezasFisicas += stockLocal;
-
-                const estadoLocal = item.raw[`Rotacion_${filtroSucursal}`] as keyof typeof conteoSalud || "SIN MOVIMIENTO";
-                if (conteoSalud[estadoLocal] !== undefined) conteoSalud[estadoLocal]++;
-
-                productosStock.push({
-                    nombre: item.articulo.substring(0, 20) + "...",
-                    stock: stockLocal
-                });
-            }
+            if ((item.exist || 0) > 0) conExistencia++;
+            piezas += item.exist || 0;
+            Object.keys(item.sucursales).forEach((s) => sucursales.add(s));
+            const estado = item.raw["Estado_Rotacion"] as EstadoRotacion;
+            if (estado in conteo) conteo[estado]++;
         });
 
-        // Filtrar alertas según la sucursal
-        const alertasFiltradas = alerts.filter(a =>
-            filtroSucursal === "GLOBAL" ||
-            a.origen === filtroSucursal ||
-            a.destino === filtroSucursal
+        const top5 = [...masterData]
+            .sort((a, b) => (b.exist || 0) - (a.exist || 0))
+            .slice(0, 5)
+            .map((p) => ({ nombre: limpiarNombreProducto(p.articulo), clave: p.clave, existencia: p.exist || 0 }));
+
+        const dona = ORDEN_ESTADOS.map((k) => ({ clave: k, name: ESTADOS[k].etiqueta, value: conteo[k], color: ESTADOS[k].color })).filter(
+            (d) => d.value > 0
         );
 
-        const comprasUrgentes = alertasFiltradas.filter(a => a.tipo === "COMPRA").length;
-        const traspasosSugeridos = alertasFiltradas.filter(a => a.tipo === "TRASPASO").length;
+        return { filas: masterData.length, conExistencia, piezas, sucursales: sucursales.size, conteo, dona, top5 };
+    }, [masterData]);
 
-        // Formatear datos para Recharts
-        const dataDona = Object.keys(conteoSalud).map(key => ({
-            name: key,
-            value: conteoSalud[key as keyof typeof conteoSalud]
-        })).filter(d => d.value > 0);
-
-        const top5Stock = productosStock
-            .sort((a, b) => b.stock - a.stock)
-            .slice(0, 5);
-
-        return {
-            totalArticulos,
-            piezasFisicas,
-            comprasUrgentes,
-            traspasosSugeridos,
-            dataDona,
-            top5Stock,
-            alertasRecientes: alertasFiltradas.slice(0, 6) // Solo mostrar las últimas 6
-        };
-    }, [masterData, alerts, filtroSucursal]);
-
-    // Pantalla de Bienvenida si no hay datos
-    if (!dashboardData) {
+    // Pantalla de bienvenida si no hay datos
+    if (!datos) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-50">
-                <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6">
-                    <Store className="w-12 h-12 text-blue-600" />
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#F6F8FB] text-center">
+                <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6" aria-hidden="true">
+                    <Store className="w-12 h-12 text-[#2563EB]" />
                 </div>
-                <h1 className="text-3xl font-bold text-slate-900 mb-2">Bienvenido a Farmacia ERP</h1>
-                <p className="text-slate-500 max-w-lg text-center leading-relaxed">
-                    Para comenzar a visualizar tu panel de control interactivo, por favor carga tus archivos de existencias y ventas desde la pestaña de <b>Rotación</b> o <b>Sincronizar</b>.
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">Bienvenido a Omega</h1>
+                <p className="text-[#475569] max-w-lg leading-relaxed">
+                    Para ver tu resumen, carga tus archivos de existencias y ventas. Te decimos qué traspasar entre sucursales y qué comprar.
                 </p>
+                <button
+                    type="button"
+                    onClick={() => setActiveView("cargar")}
+                    className="mt-6 min-h-[44px] px-6 flex items-center gap-2 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                    <Upload className="w-4 h-4" aria-hidden="true" /> Ir a cargar datos
+                </button>
             </div>
         );
     }
 
-    return (
-        <div className="flex-1 overflow-y-auto bg-slate-50 p-6 sm:p-8">
-            {/* HEADER Y FILTRO */}
-            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Panel de Control</h1>
-                    <p className="text-sm text-slate-500">Resumen operativo y salud del inventario</p>
-                </div>
+    const maxTop = Math.max(1, ...datos.top5.map((p) => p.existencia));
+    const totalDona = datos.dona.reduce((t, d) => t + d.value, 0);
 
-                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-1.5 shadow-sm">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-2">Vista:</span>
-                    <select
-                        value={filtroSucursal}
-                        onChange={(e) => setFiltroSucursal(e.target.value)}
-                        className="bg-transparent text-sm font-bold text-slate-700 py-1 px-2 focus:outline-none cursor-pointer"
-                    >
-                        <option value="GLOBAL">Red Global</option>
-                        <optgroup label="Sucursales">
-                            {SUCURSALES.map(s => (
-                                <option key={s} value={s.toUpperCase()}>{s.toUpperCase()}</option>
-                            ))}
-                        </optgroup>
-                    </select>
-                </div>
+    return (
+        <div className="flex-1 overflow-y-auto bg-[#F6F8FB] p-6 sm:p-8">
+            <header className="mb-6">
+                <h1 className="text-2xl font-bold text-slate-900">Resumen</h1>
+                {loadInfo && (
+                    <p className="text-sm text-[#475569] mt-1">
+                        Datos de {loadInfo.existenciasName} y {loadInfo.ventasName}, cargados el {formatearFechaLarga(loadInfo.loadedAt)}.
+                    </p>
+                )}
             </header>
 
-            {/* KPIS GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><Package className="w-6 h-6" /></div>
+            {/* Lo que hay que hacer */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                <TarjetaPendientes
+                    titulo="Traspasos por hacer"
+                    cantidad={pendientes.traspasos}
+                    ayuda="Ver en Alertas"
+                    icono={<ArrowRightLeft className="w-6 h-6" />}
+                    onClick={() => irAAlertas("traspasos")}
+                />
+                <TarjetaPendientes
+                    titulo="Compras por pedir"
+                    cantidad={pendientes.compras}
+                    ayuda="Ver en Alertas"
+                    icono={<ShoppingCart className="w-6 h-6" />}
+                    onClick={() => irAAlertas("compras")}
+                />
+            </div>
+
+            {/* Números generales */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
+                <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-[#2563EB] rounded-lg" aria-hidden="true">
+                        <Package className="w-6 h-6" />
+                    </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catálogo Activo</p>
-                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.totalArticulos.toLocaleString()}</h3>
+                        <p className="text-sm font-semibold text-slate-800">Productos con existencia</p>
+                        <p className="text-2xl font-bold text-slate-900">{num(datos.conExistencia)}</p>
+                        <p className="text-sm text-[#475569]">de {num(datos.filas)} filas en tu archivo</p>
                     </div>
                 </div>
 
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp className="w-6 h-6" /></div>
+                <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-[#2563EB] rounded-lg" aria-hidden="true">
+                        <TrendingUp className="w-6 h-6" />
+                    </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Piezas Físicas</p>
-                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.piezasFisicas.toLocaleString()}</h3>
+                        <p className="text-sm font-semibold text-slate-800">Piezas en toda la red</p>
+                        <p className="text-2xl font-bold text-slate-900">{num(datos.piezas)}</p>
                     </div>
                 </div>
 
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-red-50 text-red-600 rounded-lg"><ShoppingCart className="w-6 h-6" /></div>
-                    <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Compras Urgentes</p>
-                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.comprasUrgentes.toLocaleString()}</h3>
+                <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-[#2563EB] rounded-lg" aria-hidden="true">
+                        <Store className="w-6 h-6" />
                     </div>
-                </div>
-
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-amber-50 text-amber-600 rounded-lg"><ArrowRightLeft className="w-6 h-6" /></div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Traspasos Pendientes</p>
-                        <h3 className="text-2xl font-black text-slate-800">{dashboardData.traspasosSugeridos.toLocaleString()}</h3>
+                        <p className="text-sm font-semibold text-slate-800">Sucursales</p>
+                        <p className="text-2xl font-bold text-slate-900">{num(datos.sucursales)}</p>
                     </div>
                 </div>
             </div>
 
-            {/* CHARTS GRID */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-
-                {/* GRÁFICO DONA - SALUD DE INVENTARIO */}
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col h-[380px]">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Estado y Rotación</h3>
-                    <div className="flex-1 w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={dashboardData.dataDona}
-                                    innerRadius={70}
-                                    outerRadius={100}
-                                    paddingAngle={2}
-                                    dataKey="value"
-                                >
-                                    {dashboardData.dataDona.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[entry.name as keyof typeof COLORS] || COLORS["SIN MOVIMIENTO"]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    formatter={(value: number) => [value.toLocaleString() + " Artículos", "Cantidad"]}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                />
-                                <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }}/>
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                {/* GRÁFICO BARRAS - TOP INVENTARIO ESTANCADO O MAYOR STOCK */}
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 flex flex-col h-[380px]">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Top 5 Volumen de Stock</h3>
-                    <div className="flex-1 w-full mt-2">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={dashboardData.top5Stock} layout="vertical" margin={{ left: 20 }}>
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="nombre" type="category" width={140} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                                <Tooltip
-                                    cursor={{ fill: '#f1f5f9' }}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                />
-                                <Bar dataKey="stock" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-            </div>
-
-            {/* FEED DE ALERTAS RECIENTES */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Alertas Críticas Recientes</h3>
-                </div>
-                <div className="p-0">
-                    {dashboardData.alertasRecientes.length === 0 ? (
-                        <div className="p-8 text-center text-sm font-bold text-slate-400 uppercase tracking-wider">
-                            No hay alertas pendientes para esta vista.
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Salud del inventario */}
+                <section aria-labelledby="titulo-salud" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <h2 id="titulo-salud" className="text-base font-semibold text-slate-900 mb-4">
+                        Salud del inventario
+                    </h2>
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                        <div className="w-48 h-48 shrink-0" role="img" aria-label="Gráfica de dona con los productos por estado de rotación">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={datos.dona} innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value" stroke="none">
+                                        {datos.dona.map((d) => (
+                                            <Cell key={d.clave} fill={d.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        formatter={(value, name) => [`${num(Number(value))} productos`, String(name)]}
+                                        contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)", fontSize: 12 }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
                         </div>
-                    ) : (
-                        <table className="w-full text-left text-xs">
-                            <tbody>
-                            {dashboardData.alertasRecientes.map((alerta, idx) => (
-                                <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                                    <td className="p-4 w-12 text-center">
-                                        {alerta.tipo === "COMPRA" ? (
-                                            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600">🛒</div>
-                                        ) : (
-                                            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">📦</div>
-                                        )}
-                                    </td>
-                                    <td className="p-4 font-bold text-slate-700 w-1/3 truncate max-w-[200px]" title={alerta.producto}>
-                                        {alerta.producto}
-                                    </td>
-                                    <td className="p-4 font-mono text-slate-500">ID: {alerta.clave}</td>
-                                    <td className="p-4 text-right">
-                                        {alerta.tipo === "COMPRA" ? (
-                                            <span className="px-2 py-1 bg-red-50 text-red-700 font-bold rounded text-[10px] border border-red-100">
-                          URGENTE PARA {alerta.destino}
-                        </span>
-                                        ) : (
-                                            <span className="text-[10px] font-bold text-slate-500 flex items-center justify-end gap-2">
-                          <span className="px-2 py-1 bg-white border border-slate-200 rounded">{alerta.origen}</span>
-                          <ArrowRightLeft className="w-3 h-3 text-slate-300" />
-                          <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded">{alerta.destino}</span>
-                        </span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
+
+                        <ul className="flex flex-col gap-3 flex-1">
+                            {ORDEN_ESTADOS.map((k) => {
+                                const e = ESTADOS[k];
+                                const n = datos.conteo[k];
+                                return (
+                                    <li key={k} className="flex items-start gap-3">
+                                        <span className="w-3 h-3 rounded-full mt-1 shrink-0" style={{ backgroundColor: e.color }} aria-hidden="true" />
+                                        <p className="text-sm text-slate-800">
+                                            <span className="font-semibold">{e.etiqueta}</span>
+                                            <span className="text-slate-900">
+                                                {" "}
+                                                · {num(n)} {totalDona > 0 ? `(${Math.round((n / totalDona) * 100)} %)` : ""}
+                                            </span>
+                                            <span className="block text-[#475569]">{e.ayuda}</span>
+                                        </p>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                </section>
+
+                {/* Top 5 */}
+                <section aria-labelledby="titulo-top" className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <h2 id="titulo-top" className="text-base font-semibold text-slate-900 mb-4">
+                        Los 5 productos con más piezas
+                    </h2>
+                    <ol className="flex flex-col gap-4">
+                        {datos.top5.map((p) => (
+                            <li key={p.clave}>
+                                <div className="flex items-baseline justify-between gap-3 mb-1">
+                                    <span className="text-sm text-slate-800 truncate" title={p.nombre}>
+                                        {p.nombre}
+                                    </span>
+                                    <span className="text-sm font-semibold text-slate-900 shrink-0">{num(p.existencia)}</span>
+                                </div>
+                                <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden" aria-hidden="true">
+                                    <div className="h-full rounded-full bg-[#2563EB]" style={{ width: `${(p.existencia / maxTop) * 100}%` }} />
+                                </div>
+                            </li>
+                        ))}
+                    </ol>
+                </section>
             </div>
         </div>
     );

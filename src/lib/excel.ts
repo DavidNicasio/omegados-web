@@ -873,6 +873,8 @@ export const recalcularRotacionYAlertas = (rows: MasterRow[]): { data: MasterRow
             raw["Estado_Rotacion"] = "COMPRA URGENTE";
         } else if (exist > 0 && totalGlobal === 0) {
             raw["Estado_Rotacion"] = "NULA ROTACIÓN";
+        } else if (exist <= 0 && totalGlobal === 0) {
+            raw["Estado_Rotacion"] = "SIN MOVIMIENTO"; // ni hay existencia ni se vende
         } else {
             raw["Estado_Rotacion"] = "ROTACIÓN ACTIVA";
         }

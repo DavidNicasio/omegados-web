@@ -15,6 +15,29 @@ export interface HuellaVentas {
     fecha: number; // cuándo se cargó (ms)
 }
 
+export type PestanaAlertas = "traspasos" | "compras";
+
+// Filtros y página del Inventario (se conservan al cambiar de pantalla)
+export interface InventarioUI {
+    search: string;
+    sucursal: string;
+    mes: string;
+    anio: string;
+    page: number;
+    hiddenSuc: Record<string, boolean>;
+    showRotCols: boolean;
+}
+
+export const inventarioUIInicial: InventarioUI = {
+    search: "",
+    sucursal: "TODAS",
+    mes: "TODOS",
+    anio: "TODOS",
+    page: 1,
+    hiddenSuc: {},
+    showRotCols: false,
+};
+
 interface AppState {
     activeView: string;
     setActiveView: (view: string) => void;
@@ -31,6 +54,10 @@ interface AppState {
     alertasHechas: AlertasHechas;
     setAlertasHechas: (h: AlertasHechas) => void;
     marcarAlerta: (tipo: TipoAlertaHecha, id: string, hecha: boolean) => void;
+    alertasPestana: PestanaAlertas;
+    setAlertasPestana: (p: PestanaAlertas) => void;
+    inventarioUI: InventarioUI;
+    setInventarioUI: (cambios: Partial<InventarioUI>) => void;
     isDBLoaded: boolean;
 }
 
@@ -71,6 +98,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [loadInfo, setLoadInfo] = useState<LoadInfo | null>(null);
     const [huellasVentas, setHuellasVentas] = useState<HuellaVentas[]>([]);
     const [alertasHechas, setAlertasHechas] = useState<AlertasHechas>(alertasHechasVacias());
+    const [alertasPestana, setAlertasPestana] = useState<PestanaAlertas>("traspasos");
+    const [inventarioUI, setInventarioUIState] = useState<InventarioUI>(inventarioUIInicial);
+    const setInventarioUI = (cambios: Partial<InventarioUI>) => setInventarioUIState((prev) => ({ ...prev, ...cambios }));
     const [isDBLoaded, setIsDBLoaded] = useState(false);
 
     // Cargar datos desde la base de datos al iniciar la app
@@ -158,12 +188,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 alertasHechas,
                 setAlertasHechas,
                 marcarAlerta,
+                alertasPestana,
+                setAlertasPestana,
+                inventarioUI,
+                setInventarioUI,
                 isDBLoaded,
             }}
         >
             {/* Mostramos un loader rápido mientras lee la base de datos (evita pantallazos) */}
             {!isDBLoaded ? (
-                <div className="h-screen w-screen flex items-center justify-center bg-slate-900 text-white font-mono text-sm">
+                <div className="h-screen w-screen flex items-center justify-center bg-slate-900 text-white text-sm">
                     Cargando inventario guardado...
                 </div>
             ) : (

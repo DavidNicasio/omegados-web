@@ -40,6 +40,13 @@ export function nombreSucursal(s: string): string {
     .join(" ");
 }
 
+/** Solo para mostrar: quita etiquetas tipo *MARCA* y espacios repetidos. Para exportar se usa el nombre original. */
+export function limpiarNombreProducto(nombre: string): string {
+  const base = String(nombre ?? "");
+  const limpio = base.replace(/\*[^*]*\*/g, " ").replace(/\s+/g, " ").trim();
+  return limpio || base.replace(/\s+/g, " ").trim();
+}
+
 /** Identifica un archivo por nombre, tamaño y fecha de modificación */
 export function huellaArchivo(f: File): string {
   return `${f.name}|${f.size}|${f.lastModified}`;

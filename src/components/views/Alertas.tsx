@@ -215,9 +215,9 @@ const FilaCompra: React.FC<{ alerta: Alert; pedida: boolean; onMarcar: () => voi
 // Pantalla
 // ---------------------------------------------------------------------------
 const Alertas: React.FC = () => {
-    const { alerts, masterData, setActiveView, alertasHechas, marcarAlerta } = useAppContext();
+    const { alerts, masterData, setActiveView, alertasHechas, marcarAlerta, alertasPestana: pestana, setAlertasPestana: setPestana } =
+        useAppContext();
 
-    const [pestana, setPestana] = useState<Pestana>("traspasos");
     const [busqueda, setBusqueda] = useState("");
     const [sucursal, setSucursal] = useState("TODAS");
     const [soloPendientes, setSoloPendientes] = useState(false);
@@ -308,7 +308,8 @@ const Alertas: React.FC = () => {
 
     // --- Enviar traspasos pendientes ---
     const enviarTraspasos = async () => {
-        const pendientesParaEnviar = grupos.filter((g) => !alertasHechas.traspasos[g.id]).flatMap((g) => g.items);
+        const rutasPendientes = grupos.filter((g) => !alertasHechas.traspasos[g.id]);
+        const pendientesParaEnviar = rutasPendientes.flatMap((g) => g.items);
         if (pendientesParaEnviar.length === 0) {
             toast.error("No hay traspasos pendientes para enviar.");
             return;
@@ -322,7 +323,12 @@ const Alertas: React.FC = () => {
             } else if (respuesta.mock) {
                 toast.warning(respuesta.message || "Modo de prueba: no se envió nada al sistema", { id: cargando });
             } else {
-                toast.success(respuesta.message || "Traspasos enviados al sistema.", { id: cargando });
+                // Envío real exitoso: los marcamos como hechos para que no se envíen dos veces
+                rutasPendientes.forEach((g) => marcarAlerta("traspasos", g.id, true));
+                toast.success(
+                    `${plural(rutasPendientes.length, "traspaso enviado", "traspasos enviados")} al sistema y marcados como hechos.`,
+                    { id: cargando }
+                );
             }
         } catch (error: any) {
             toast.error(error?.message || "No pudimos conectar con el sistema.", { id: cargando });
