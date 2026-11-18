@@ -130,7 +130,7 @@ const Alertas: React.FC = () => {
         }
 
         setLoadingOrders(true);
-        const loadingToast = toast.loading("Generando órdenes de traspaso en la nube...");
+        const loadingToast = toast.loading("Enviando traspasos...");
 
         try {
             const response = await createTransferOrders(alerts);
@@ -161,7 +161,7 @@ const Alertas: React.FC = () => {
     return (
         <div className="flex flex-col h-full bg-[#f8fafc]">
             <header className="flex flex-col xl:flex-row items-center justify-between px-6 py-4 bg-white border-b border-slate-200 gap-4">
-                <h2 className="text-lg font-bold text-slate-900 whitespace-nowrap shrink-0">🔔 Alertas</h2>
+                <h2 className="text-lg font-bold text-slate-900 whitespace-nowrap shrink-0">Alertas</h2>
 
                 <div className="flex items-center gap-4 flex-1 w-full justify-center flex-wrap xl:flex-nowrap">
                     {/* BUSCADOR */}
@@ -223,7 +223,7 @@ const Alertas: React.FC = () => {
                     <button
                         onClick={handleExport}
                         disabled={filteredAlerts.length === 0}
-                        className="flex items-center gap-2 bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide shadow-sm"
+                        className="flex items-center gap-2 min-h-[44px] bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 px-4 rounded-lg text-sm font-semibold transition-colors"
                     >
                         <Download className="w-4 h-4" /> Exportar {tipoFilter === "COMPRA" ? "Compras" : tipoFilter === "TRASPASO" ? "Traspasos" : "Alertas"} ({filteredAlerts.length})
                     </button>
@@ -231,12 +231,12 @@ const Alertas: React.FC = () => {
                     <button
                         onClick={handleGenerateCloudOrders}
                         disabled={totals.traspasos === 0 || loadingOrders}
-                        className="flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded text-[11px] uppercase font-bold transition-colors tracking-wide shadow-sm"
+                        className="flex items-center gap-2 min-h-[44px] bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 px-4 rounded-lg text-sm font-semibold transition-colors"
                     >
                         {loadingOrders ? (
-                            <><Loader2 className="w-4 h-4 animate-spin text-white" /> ENVIANDO...</>
+                            <><Loader2 className="w-4 h-4 animate-spin text-white" /> Enviando...</>
                         ) : (
-                            <><CloudUpload className="w-4 h-4 text-white" /> Sincronizar Nube</>
+                            <><CloudUpload className="w-4 h-4 text-white" /> Enviar traspasos</>
                         )}
                     </button>
                 </div>
@@ -253,7 +253,7 @@ const Alertas: React.FC = () => {
                     }`}
                 >
                     <span className="text-2xl font-bold font-mono">{totals.total}</span>
-                    <span className={`text-[10px] font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "TODAS" ? "text-slate-300" : "text-slate-500"}`}>
+                    <span className={`text-xs font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "TODAS" ? "text-slate-300" : "text-slate-500"}`}>
                         Todas las<br />Alertas
                     </span>
                 </button>
@@ -267,7 +267,7 @@ const Alertas: React.FC = () => {
                     }`}
                 >
                     <span className={`text-2xl font-bold font-mono ${tipoFilter === "TRASPASO" ? "text-white" : "text-blue-600"}`}>{totals.traspasos}</span>
-                    <span className={`text-[10px] font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "TRASPASO" ? "text-blue-100" : "text-slate-500"}`}>
+                    <span className={`text-xs font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "TRASPASO" ? "text-blue-100" : "text-slate-500"}`}>
                         Traspasos<br />Sugeridos
                     </span>
                 </button>
@@ -281,7 +281,7 @@ const Alertas: React.FC = () => {
                     }`}
                 >
                     <span className={`text-2xl font-bold font-mono ${tipoFilter === "COMPRA" ? "text-white" : "text-red-500"}`}>{totals.compras}</span>
-                    <span className={`text-[10px] font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "COMPRA" ? "text-red-100" : "text-slate-500"}`}>
+                    <span className={`text-xs font-bold uppercase tracking-widest leading-tight text-left ${tipoFilter === "COMPRA" ? "text-red-100" : "text-slate-500"}`}>
                         Compras<br />Urgentes
                     </span>
                 </button>
@@ -306,12 +306,12 @@ const Alertas: React.FC = () => {
                                     <div className={`h-1.5 shadow-sm ${headerColor}`}></div>
                                     <div className="p-5 flex flex-col h-full hover:bg-slate-50 transition-colors">
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                                            <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider ${
                                                 isTraspaso ? "bg-blue-100 text-blue-800" : "bg-red-100 text-red-800"
                                             }`}>
                                                 {isTraspaso ? "🔄 Traspaso" : "🛒 Compra Urgente"}
                                             </span>
-                                            <span className="text-[10px] font-mono text-slate-400">#{i + 1 + (page - 1) * itemsPerPage}</span>
+                                            <span className="text-xs font-mono text-slate-400">#{i + 1 + (page - 1) * itemsPerPage}</span>
                                         </div>
 
                                         <h4 className="font-bold text-sm truncate mb-1 text-slate-800" title={a.producto}>{a.producto || "Sin nombre"}</h4>
@@ -319,25 +319,25 @@ const Alertas: React.FC = () => {
 
                                         {isTraspaso ? (
                                             <div className="mt-auto flex items-center justify-between bg-slate-50 p-2 rounded border border-slate-200">
-                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.origen}>{a.origen}</span>
-                                                <span className="text-[10px] font-bold text-slate-400 font-mono tracking-widest">→ {a.cantidad} →</span>
-                                                <span className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] uppercase font-bold truncate max-w-[85px] text-center" title={a.destino}>{a.destino}</span>
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded text-xs uppercase font-bold truncate max-w-[85px] text-center" title={a.origen}>{a.origen}</span>
+                                                <span className="text-xs font-bold text-slate-400 font-mono tracking-widest">→ {a.cantidad} →</span>
+                                                <span className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-100 rounded text-xs uppercase font-bold truncate max-w-[85px] text-center" title={a.destino}>{a.destino}</span>
                                             </div>
                                         ) : (
                                             <div className="mt-auto flex flex-col gap-1.5">
                                                 {/* Cantidad sugerida */}
                                                 <div className="flex items-center justify-between bg-red-50 border border-red-100 rounded px-3 py-1.5">
-                                                    <span className="text-[9px] font-bold uppercase tracking-widest text-red-500">Cantidad sugerida</span>
+                                                    <span className="text-xs font-bold uppercase tracking-widest text-red-500">Cantidad sugerida</span>
                                                     {a.cantidad === "REVISAR" ? (
-                                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold uppercase tracking-wider">⚠ REVISAR</span>
+                                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs font-bold uppercase tracking-wider">⚠ REVISAR</span>
                                                     ) : (
                                                         <span className="font-mono font-bold text-red-700 text-sm">{typeof a.cantidad === "number" ? a.cantidad.toLocaleString() : a.cantidad} uds.</span>
                                                     )}
                                                 </div>
                                                 {/* Destino */}
                                                 <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded px-3 py-1.5">
-                                                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Destino</span>
-                                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[9px] font-bold uppercase tracking-wider max-w-[160px] truncate text-right" title={a.destino}>{a.destino}</span>
+                                                    <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Destino</span>
+                                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold uppercase tracking-wider max-w-[160px] truncate text-right" title={a.destino}>{a.destino}</span>
                                                 </div>
                                             </div>
                                         )}
@@ -354,19 +354,19 @@ const Alertas: React.FC = () => {
                 <button
                     disabled={page <= 1}
                     onClick={() => setPage(page - 1)}
-                    className="px-6 py-2 bg-white border border-slate-300 rounded shadow-sm text-xs font-bold hover:bg-slate-50 text-slate-600 disabled:opacity-50 disabled:hover:bg-white uppercase tracking-wider"
+                    className="min-h-[44px] px-5 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:hover:bg-white"
                 >
-                    &larr; Prev
+                    &larr; Anterior
                 </button>
-                <span className="text-[11px] text-slate-500 font-mono uppercase tracking-widest">
-                    PAGE {page} OF {totalPages} • {filteredAlerts.length} ITEMS
+                <span className="text-sm text-slate-600">
+                    Página {page} de {totalPages} · {filteredAlerts.length} alertas
                 </span>
                 <button
                     disabled={page >= totalPages}
                     onClick={() => setPage(page + 1)}
-                    className="px-6 py-2 bg-white border border-slate-300 rounded shadow-sm text-xs font-bold hover:bg-slate-50 text-slate-600 disabled:opacity-50 disabled:hover:bg-white uppercase tracking-wider"
+                    className="min-h-[44px] px-5 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:hover:bg-white"
                 >
-                    Next &rarr;
+                    Siguiente &rarr;
                 </button>
             </div>
         </div>

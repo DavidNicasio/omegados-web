@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from "react";
-import {Search, Columns, Save, Filter} from "lucide-react";
+import {Search, Columns, Download, Filter} from "lucide-react";
 import {useAppContext} from "../../AppContext";
 import {STOCK_BAJO, SUCURSALES, MESES} from "../../lib/constants";
 import {exportToExcel} from "../../lib/excel";
@@ -144,8 +144,8 @@ const Inventario: React.FC = () => {
 
     if (!masterData) {
         return (
-            <div className="h-full flex items-center justify-center text-slate-500 font-mono tracking-wider">
-                NO DATA LOADED. PLEASE SELECT A MASTER FILE.
+            <div className="h-full flex items-center justify-center text-slate-600 text-base text-center px-8">
+                Todavía no hay datos cargados. Ve a "1. Cargar datos" para empezar.
             </div>
         );
     }
@@ -154,7 +154,7 @@ const Inventario: React.FC = () => {
         <div className="flex flex-col h-full bg-[#f8fafc]">
             <header
                 className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white border-b border-slate-200 gap-4">
-                <h2 className="text-lg font-bold text-slate-900 whitespace-nowrap">📦 Inventario Maestro</h2>
+                <h2 className="text-lg font-bold text-slate-900 whitespace-nowrap">Inventario</h2>
 
                 <div className="flex items-center gap-4 flex-1 justify-center w-full max-w-3xl">
                     <div className="relative flex-1">
@@ -217,13 +217,13 @@ const Inventario: React.FC = () => {
                     </button>
                     <button onClick={handleExport}
                             className="flex items-center justify-center flex-1 sm:flex-none gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded shadow text-xs font-bold transition-colors uppercase">
-                        <Save className="w-4 h-4"/> Guardar
+                        <Download className="w-4 h-4"/> Exportar a Excel
                     </button>
                 </div>
             </header>
 
             <div
-                className="flex items-center gap-6 px-6 py-3 bg-slate-50/80 text-[10px] border-b border-slate-200 font-medium uppercase tracking-wider text-slate-500 overflow-x-auto">
+                className="flex items-center gap-6 px-6 py-3 bg-slate-50/80 text-xs border-b border-slate-200 font-medium uppercase tracking-wider text-slate-500 overflow-x-auto">
                 <span className="shrink-0">Color de filas:</span>
                 <span className="text-red-600 flex items-center gap-1 shrink-0"><span
                     className="w-2 h-2 rounded-full bg-red-500"></span> Sin existencia / Crítico</span>
@@ -246,7 +246,7 @@ const Inventario: React.FC = () => {
                                     headerRender = (
                                         <div className="flex flex-col items-start leading-tight">
                                             <span>Rotación</span>
-                                            <span className="text-[9px] text-blue-600 font-bold tracking-widest">
+                                            <span className="text-xs text-blue-600 font-bold tracking-widest">
                                   {sucursalFilter !== "TODAS" ? sucursalFilter : "GLOBAL"}
                               </span>
                                         </div>
@@ -258,7 +258,7 @@ const Inventario: React.FC = () => {
                                     headerRender = (
                                         <div className="flex flex-col items-start leading-tight">
                                             <span>{sucName}</span>
-                                            <span className="text-[9px] text-blue-600 font-bold tracking-widest">{sub}</span>
+                                            <span className="text-xs text-blue-600 font-bold tracking-widest">{sub}</span>
                                         </div>
                                     );
                                 }
@@ -319,7 +319,7 @@ const Inventario: React.FC = () => {
                                         if (c === "Estado_Rotacion") {
                                             return (
                                                 <td key={c} className="py-2.5 px-4 border-r border-slate-300/40 font-mono text-center">
-                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold ${
+                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${
                                                         displayValue === "ROTACIÓN ACTIVA" ? "bg-green-100 text-green-800" :
                                                             displayValue === "NULA ROTACIÓN" ? "bg-amber-100 text-amber-800" :
                                                                 displayValue === "COMPRA URGENTE" ? "bg-rose-100 text-rose-800" :
@@ -344,7 +344,7 @@ const Inventario: React.FC = () => {
                         </tbody>
                     </table>
                     {currentPageData.length === 0 && (
-                        <div className="p-8 text-center text-slate-500 font-mono">NO RECORDS FOUND</div>
+                        <div className="p-8 text-center text-slate-600">No encontramos productos con esa búsqueda.</div>
                     )}
                 </div>
             </div>
@@ -353,19 +353,19 @@ const Inventario: React.FC = () => {
                 <button
                     disabled={page <= 1}
                     onClick={() => setPage(page - 1)}
-                    className="px-6 py-2 bg-white border border-slate-300 rounded shadow-sm text-xs font-bold hover:bg-slate-50 text-slate-600 disabled:opacity-50 disabled:hover:bg-white uppercase tracking-wider"
+                    className="min-h-[44px] px-5 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:hover:bg-white"
                 >
-                    &larr; Prev
+                    &larr; Anterior
                 </button>
-                <span className="text-[11px] text-slate-500 font-mono uppercase tracking-widest">
-          PAGE {page} OF {totalPages} • {filteredData.length.toLocaleString()} ITEMS
+                <span className="text-sm text-slate-600">
+          Página {page} de {totalPages} · {filteredData.length.toLocaleString()} productos
         </span>
                 <button
                     disabled={page >= totalPages}
                     onClick={() => setPage(page + 1)}
-                    className="px-6 py-2 bg-white border border-slate-300 rounded shadow-sm text-xs font-bold hover:bg-slate-50 text-slate-600 disabled:opacity-50 disabled:hover:bg-white uppercase tracking-wider"
+                    className="min-h-[44px] px-5 bg-white border border-slate-300 rounded-lg text-sm font-semibold hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:hover:bg-white"
                 >
-                    Next &rarr;
+                    Siguiente &rarr;
                 </button>
             </div>
         </div>
