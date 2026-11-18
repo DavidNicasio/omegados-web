@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Home, Upload, Bell, Package, RefreshCcw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "../lib/utils";
+import { cn, formatearFechaCorta } from "../lib/utils";
 import { useAppContext } from "../AppContext";
 
 interface NavItem {
@@ -14,7 +14,7 @@ interface NavItem {
 // Orden pensado como el flujo real de uso: cargar -> revisar alertas -> consultar inventario
 const NAV_ITEMS: NavItem[] = [
     { id: "inicio", label: "Resumen", icon: Home },
-    { id: "paso2", label: "1. Cargar datos", icon: Upload },
+    { id: "cargar", label: "1. Cargar datos", icon: Upload },
     { id: "alertas", label: "2. Alertas", icon: Bell },
     { id: "inventario", label: "3. Inventario", icon: Package },
 ];
@@ -31,8 +31,8 @@ export const Sidebar: React.FC = () => {
         alerts,
         setAlerts,
         setCols,
-        fileName,
-        setFileName,
+        loadInfo,
+        setLoadInfo,
     } = useAppContext();
 
     const [confirmClear, setConfirmClear] = useState(false);
@@ -43,7 +43,7 @@ export const Sidebar: React.FC = () => {
         setMasterData(null);
         setAlerts([]);
         setCols([]);
-        setFileName(null);
+        setLoadInfo(null);
         setConfirmClear(false);
         setActiveView("inicio");
         toast.success("Datos borrados. Puedes cargar archivos nuevos cuando quieras.");
@@ -113,11 +113,17 @@ export const Sidebar: React.FC = () => {
                     </span>
                 </div>
 
-                <p className="text-xs text-slate-400" title={fileName || undefined}>
+                <p
+                    className="text-xs text-slate-400"
+                    title={loadInfo ? `${loadInfo.existenciasName} y ${loadInfo.ventasName}` : undefined}
+                >
                     {hasData
                         ? `${masterData!.length.toLocaleString()} productos guardados en este equipo`
                         : "Carga tus archivos de Excel para empezar."}
                 </p>
+                {hasData && loadInfo && (
+                    <p className="text-xs text-slate-400">Última carga: {formatearFechaCorta(loadInfo.loadedAt)}</p>
+                )}
 
                 {hasData && !confirmClear && (
                     <button

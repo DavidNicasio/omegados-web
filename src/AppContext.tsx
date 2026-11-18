@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { MasterRow, Alert } from "./lib/excel";
 
+export interface LoadInfo {
+    existenciasName: string;
+    ventasName: string;
+    loadedAt: number; // marca de tiempo (ms)
+}
+
 interface AppState {
     activeView: string;
     setActiveView: (view: string) => void;
@@ -10,8 +16,8 @@ interface AppState {
     setAlerts: (alerts: Alert[]) => void;
     cols: string[];
     setCols: (cols: string[]) => void;
-    fileName: string | null;
-    setFileName: (name: string | null) => void;
+    loadInfo: LoadInfo | null;
+    setLoadInfo: (info: LoadInfo | null) => void;
     isDBLoaded: boolean;
 }
 
@@ -49,7 +55,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [masterData, setMasterData] = useState<MasterRow[] | null>(null);
     const [alerts, setAlerts] = useState<Alert[]>([]);
     const [cols, setCols] = useState<string[]>([]);
-    const [fileName, setFileName] = useState<string | null>(null);
+    const [loadInfo, setLoadInfo] = useState<LoadInfo | null>(null);
     const [isDBLoaded, setIsDBLoaded] = useState(false);
 
     // Cargar datos desde la base de datos al iniciar la app
@@ -59,12 +65,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const savedMaster = await loadFromDB("masterData");
                 const savedAlerts = await loadFromDB("alerts");
                 const savedCols = await loadFromDB("cols");
-                const savedFileName = await loadFromDB("fileName");
+                const savedLoadInfo = await loadFromDB("loadInfo");
 
                 if (savedMaster) setMasterData(savedMaster);
                 if (savedAlerts) setAlerts(savedAlerts);
                 if (savedCols) setCols(savedCols);
-                if (savedFileName) setFileName(savedFileName);
+                if (savedLoadInfo) setLoadInfo(savedLoadInfo);
             } catch (error) {
                 console.error("Error cargando la DB:", error);
             } finally {
@@ -80,9 +86,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             saveToDB("masterData", masterData);
             saveToDB("alerts", alerts);
             saveToDB("cols", cols);
-            saveToDB("fileName", fileName);
+            saveToDB("loadInfo", loadInfo);
         }
-    }, [masterData, alerts, cols, fileName, isDBLoaded]);
+    }, [masterData, alerts, cols, loadInfo, isDBLoaded]);
 
     return (
         <AppContext.Provider
@@ -95,8 +101,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setAlerts,
                 cols,
                 setCols,
-                fileName,
-                setFileName,
+                loadInfo,
+                setLoadInfo,
                 isDBLoaded,
             }}
         >

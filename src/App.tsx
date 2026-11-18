@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 import { AppProvider, useAppContext } from "./AppContext";
 import { Sidebar } from "./components/Sidebar";
 import Inicio from "./components/views/Inicio";
-import Paso2 from "./components/views/Paso2";
+import CargarDatos from "./components/views/CargarDatos";
 import Inventario from "./components/views/Inventario";
 import Alertas from "./components/views/Alertas";
 import Sync from "./components/views/Sync"; // <-- Aquí volvemos a importar Sync
@@ -15,8 +15,8 @@ const AppContent: React.FC = () => {
         switch (activeView) {
             case "inicio":
                 return <Inicio />;
-            case "paso2":
-                return <Paso2 />;
+            case "cargar":
+                return <CargarDatos />;
             case "inventario":
                 return <Inventario />;
             case "alertas":

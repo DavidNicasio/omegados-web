@@ -547,42 +547,263 @@ const cleanClave = (val: any): string => {
     return c;
 };
 
+// --- Reglas de lectura compartidas entre el cálculo y la revisión previa de archivos ---
+
+const RE_CLAVE = /^(clave|codigo|código|cod|cve|articulo_id)$/i;
+const RE_ARTICULO = /^(articulo|artículo|articulos|artículos|descripcion|descripción|producto)$/i;
+const RE_SUCURSAL = /^(sucursal|tienda|almacen|almacén|bodega|suc)$/i;
+const RE_TOTAL = /^(total|cantidad|cant|unidades|piezas|venta|ventas)$/i;
+
+const SUCURSALES_UP = SUCURSALES.map((s) => s.toUpperCase());
+
+const colClaveExistencias = (keys: string[]) =>
+    keys.find((k) => RE_CLAVE.test(k.trim())) || keys.find((k) => k.toLowerCase().includes("clave"));
+const colArticuloExistencias = (keys: string[]) =>
+    keys.find((k) => RE_ARTICULO.test(k.trim())) || keys.find((k) => k.toLowerCase().includes("articulo"));
+const colClaveVentas = (keys: string[]) => keys.find((k) => RE_CLAVE.test(k.trim()));
+const colSucursalVentas = (keys: string[]) => keys.find((k) => RE_SUCURSAL.test(k.trim()));
+const colTotalVentas = (keys: string[]) => keys.find((k) => RE_TOTAL.test(k.trim()));
+const colMes = (keys: string[], mes: string) => keys.find((k) => k.trim().toUpperCase().startsWith(mes));
+
+const esClaveIgnoradaExistencias = (clave: string) =>
+    !clave || clave === "000XXX" || clave.toLowerCase().includes("clave");
+const esClaveIgnoradaVentas = (clave: string) => !clave || clave === "000XXX";
+
+const aNumero = (v: any): number => parseFloat(String(v ?? "").replace(/[^0-9.-]/g, "")) || 0;
+
+// Total de una fila de ventas: usa la columna de total si existe, si no suma los meses
+const totalFilaVentas = (row: any, keys: string[]): number => {
+    const totalKey = colTotalVentas(keys);
+    if (totalKey && row[totalKey] !== undefined && row[totalKey] !== null && String(row[totalKey]).trim() !== "") {
+        return aNumero(row[totalKey]);
+    }
+    let total = 0;
+    MESES.forEach((m) => {
+        const mKey = colMes(keys, m);
+        if (mKey && row[mKey] !== undefined && row[mKey] !== null) total += aNumero(row[mKey]);
+    });
+    return total;
+};
+
+const leerPrimeraHoja = async (file: File): Promise<any[]> => {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[];
+};
+
+// =========================================================================
+// REVISIÓN PREVIA DE ARCHIVOS (antes de calcular)
+// =========================================================================
+
+export interface ResumenExistencias {
+    filas: number;
+    filasConProducto: number;
+    filasRelleno: number;
+    sucursales: string[];
+    claves: Set<string>;
+    errores: string[];
+    avisos: string[];
+}
+
+export interface ResumenVentas {
+    filas: number;
+    productos: number;
+    meses: string[];
+    sucursales: string[]; // sucursales con ventas > 0
+    sucursalesNoReconocidas: string[];
+    claves: Set<string>;
+    errores: string[];
+    avisos: string[];
+}
+
+const unirColumnas = (rows: any[]): string[] => {
+    const set = new Set<string>();
+    rows.forEach((r) => Object.keys(r).forEach((k) => set.add(k)));
+    return Array.from(set);
+};
+
+const sucursalesEnEncabezados = (keys: string[]): string[] => {
+    const set = new Set<string>();
+    keys.forEach((k) => {
+        const n = normSucursal(k);
+        if (SUCURSALES_UP.includes(n)) set.add(n);
+    });
+    return Array.from(set);
+};
+
+export const inspeccionarExistencias = async (file: File): Promise<ResumenExistencias> => {
+    const rows = await leerPrimeraHoja(file);
+    const resumen: ResumenExistencias = {
+        filas: rows.length,
+        filasConProducto: 0,
+        filasRelleno: 0,
+        sucursales: [],
+        claves: new Set(),
+        errores: [],
+        avisos: [],
+    };
+    if (rows.length === 0) {
+        resumen.errores.push("El archivo está vacío.");
+        return resumen;
+    }
+
+    const keys = unirColumnas(rows);
+    const claveKey = colClaveExistencias(keys);
+    const articuloKey = colArticuloExistencias(keys);
+    resumen.sucursales = sucursalesEnEncabezados(keys).sort();
+
+    const pareceVentas = !!colSucursalVentas(keys) && (!!colTotalVentas(keys) || MESES.some((m) => colMes(keys, m)));
+    if (pareceVentas && resumen.sucursales.length < 3) {
+        resumen.errores.push("Este archivo parece ser de ventas. Súbelo en la tarjeta 2 (Ventas) y aquí elige el de existencias.");
+        return resumen;
+    }
+
+    if (!claveKey) resumen.errores.push("Falta la columna Clave.");
+    if (!articuloKey) resumen.errores.push("Falta la columna Artículo (o Artículos, Descripción).");
+    if (resumen.sucursales.length === 0) {
+        resumen.errores.push("No encontramos columnas con nombres de sucursales (Moll, Reforma, Matriz, etc.).");
+    }
+    if (resumen.errores.length > 0) return resumen;
+
+    rows.forEach((row) => {
+        const clave = cleanClave(row[claveKey!]);
+        if (esClaveIgnoradaExistencias(clave)) {
+            resumen.filasRelleno++;
+            return;
+        }
+        resumen.filasConProducto++;
+        resumen.claves.add(clave);
+    });
+
+    if (resumen.filasConProducto === 0) resumen.errores.push("No encontramos productos en el archivo.");
+
+    const faltantes = SUCURSALES_UP.filter((s) => !resumen.sucursales.includes(s));
+    if (faltantes.length > 0 && resumen.errores.length === 0) {
+        resumen.avisos.push(
+            `No encontramos columnas para: ${faltantes.join(", ")}. Esas sucursales no tendrán existencia.`
+        );
+    }
+    return resumen;
+};
+
+export const inspeccionarVentas = async (file: File): Promise<ResumenVentas> => {
+    const rows = await leerPrimeraHoja(file);
+    const resumen: ResumenVentas = {
+        filas: rows.length,
+        productos: 0,
+        meses: [],
+        sucursales: [],
+        sucursalesNoReconocidas: [],
+        claves: new Set(),
+        errores: [],
+        avisos: [],
+    };
+    if (rows.length === 0) {
+        resumen.errores.push("El archivo está vacío.");
+        return resumen;
+    }
+
+    const keys = unirColumnas(rows);
+    const claveKey = colClaveVentas(keys);
+    const sucKey = colSucursalVentas(keys);
+    const tieneTotal = !!colTotalVentas(keys);
+    resumen.meses = MESES.filter((m) => colMes(keys, m));
+
+    if (!sucKey && sucursalesEnEncabezados(keys).length >= 3) {
+        resumen.errores.push("Este archivo parece ser de existencias. Súbelo en la tarjeta 1 (Existencias) y aquí elige el de ventas.");
+        return resumen;
+    }
+
+    if (!claveKey) resumen.errores.push("Falta la columna Clave.");
+    if (!sucKey) resumen.errores.push("Falta la columna Sucursal.");
+    if (!tieneTotal && resumen.meses.length === 0) {
+        resumen.errores.push("No encontramos las columnas de meses (ENE, FEB, MAR…) ni una columna de total.");
+    }
+    if (resumen.errores.length > 0) return resumen;
+
+    const conVentas = new Set<string>();
+    const noReconocidas = new Set<string>();
+    rows.forEach((row) => {
+        const clave = cleanClave(row[claveKey!]);
+        if (esClaveIgnoradaVentas(clave)) return;
+        resumen.claves.add(clave);
+        const suc = normSucursal(String(row[sucKey!] ?? ""));
+        if (!suc) return;
+        if (!SUCURSALES_UP.includes(suc)) {
+            noReconocidas.add(String(row[sucKey!]).trim());
+            return;
+        }
+        if (totalFilaVentas(row, keys) > 0) conVentas.add(suc);
+    });
+
+    resumen.productos = resumen.claves.size;
+    resumen.sucursales = Array.from(conVentas).sort();
+    resumen.sucursalesNoReconocidas = Array.from(noReconocidas);
+
+    if (resumen.productos === 0) resumen.errores.push("No encontramos productos en el archivo.");
+    if (resumen.sucursalesNoReconocidas.length > 0) {
+        resumen.avisos.push(
+            `No reconocimos estas sucursales y sus ventas no se asignarán a ninguna: ${resumen.sucursalesNoReconocidas.join(", ")}.`
+        );
+    }
+    return resumen;
+};
+
+/** Avisos y errores que salen de comparar los dos archivos */
+export const revisarCruce = (
+    ex: ResumenExistencias,
+    vt: ResumenVentas
+): { errores: string[]; avisos: string[] } => {
+    const errores: string[] = [];
+    const avisos: string[] = [];
+    if (ex.errores.length > 0 || vt.errores.length > 0) return { errores, avisos };
+
+    const sinVentas = ex.sucursales.filter((s) => !vt.sucursales.includes(s));
+    if (sinVentas.length > 0) {
+        const lista = sinVentas.join(", ");
+        avisos.push(
+            sinVentas.length === 1
+                ? `${lista} no aparece en el archivo de ventas: sus productos con existencia se marcarán como nula rotación.`
+                : `${lista} no aparecen en el archivo de ventas: sus productos con existencia se marcarán como nula rotación.`
+        );
+    }
+
+    let enComun = 0;
+    vt.claves.forEach((c) => {
+        if (ex.claves.has(c)) enComun++;
+    });
+    if (vt.claves.size > 0 && enComun === 0) {
+        errores.push("Los dos archivos no comparten ningún producto. Revisa que sean del mismo catálogo.");
+    } else if (vt.claves.size > 0 && enComun / vt.claves.size < 0.5) {
+        avisos.push(
+            `Solo ${enComun.toLocaleString()} de ${vt.claves.size.toLocaleString()} productos con ventas aparecen en existencias. Revisa que sean del mismo catálogo.`
+        );
+    }
+    return { errores, avisos };
+};
+
 export const procesarRotacionCruzada = async (
     fileVentas: File,
     fileExistencias: File
 ): Promise<{ data: MasterRow[]; alertas: Alert[]; rawColumns: string[] }> => {
 
     // 1. Leer Ventas
-    const dataVentas = await fileVentas.arrayBuffer();
-    const wbVentas = XLSX.read(dataVentas, { type: "array" });
-    const rawVentas = XLSX.utils.sheet_to_json(wbVentas.Sheets[wbVentas.SheetNames[0]]) as any[];
+    const rawVentas = await leerPrimeraHoja(fileVentas);
 
     // clave -> { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: { "ABASTOS": 10 } }
     const diccionarioVentas: Record<string, any> = {};
 
     rawVentas.forEach((row) => {
-        const claveKey = Object.keys(row).find((k) => /^(clave|codigo|código|cod|cve|articulo_id)$/i.test(k.trim()));
-        let clave = cleanClave(claveKey ? row[claveKey] : (row["CLAVE"] || row["Clave"] || ""));
-        if (!clave || clave === "000XXX") return;
+        const keys = Object.keys(row);
+        const claveKey = colClaveVentas(keys);
+        const clave = cleanClave(claveKey ? row[claveKey] : "");
+        if (esClaveIgnoradaVentas(clave)) return;
 
-        const sucursalKey = Object.keys(row).find((k) => /^(sucursal|tienda|almacen|almacén|bodega|suc)$/i.test(k.trim()));
-        const sucursalRaw = sucursalKey ? row[sucursalKey] : (row["SUCURSAL"] || row["Sucursal"] || "");
-        const sucursal = normSucursal(String(sucursalRaw || ""));
+        const sucursalKey = colSucursalVentas(keys);
+        const sucursal = normSucursal(String((sucursalKey ? row[sucursalKey] : "") || ""));
 
-        // Buscar total o sumar meses dinámicamente si no existe columna TOTAL
-        let total = 0;
-        const totalKey = Object.keys(row).find((k) => /^(total|cantidad|cant|unidades|piezas|venta|ventas)$/i.test(k.trim()));
-        if (totalKey && row[totalKey] !== undefined && row[totalKey] !== null && String(row[totalKey]).trim() !== "") {
-            total = parseFloat(String(row[totalKey]).replace(/[^0-9.-]/g, "")) || 0;
-        } else {
-            // Sumar todas las columnas de meses (ENE, FEB, MAR, ABR, MAY, JUN, JUL, AGO, SEP, OCT, NOV, DIC)
-            MESES.forEach((m) => {
-                const mKey = Object.keys(row).find((k) => k.trim().toUpperCase().startsWith(m));
-                if (mKey && row[mKey] !== undefined && row[mKey] !== null) {
-                    total += parseFloat(String(row[mKey]).replace(/[^0-9.-]/g, "")) || 0;
-                }
-            });
-        }
+        // Total de la fila: columna de total o suma de meses
+        const total = totalFilaVentas(row, keys);
 
         if (!diccionarioVentas[clave]) {
             diccionarioVentas[clave] = { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: {} };
@@ -599,9 +820,7 @@ export const procesarRotacionCruzada = async (
     });
 
     // 2. Leer Existencias
-    const dataExist = await fileExistencias.arrayBuffer();
-    const wbExist = XLSX.read(dataExist, { type: "array" });
-    const rawExist = XLSX.utils.sheet_to_json(wbExist.Sheets[wbExist.SheetNames[0]]) as any[];
+    const rawExist = await leerPrimeraHoja(fileExistencias);
 
     const productosList: MasterRow[] = [];
     const alertasGeneradas: Alert[] = [];
@@ -614,17 +833,16 @@ export const procesarRotacionCruzada = async (
 
     rawExist.forEach((row) => {
         // Buscar llaves correctas independientemente de espacios
-        const claveKey = Object.keys(row).find((k) => /^(clave|codigo|código|cod|cve|articulo_id)$/i.test(k.trim()))
-            || Object.keys(row).find((k) => k.toLowerCase().includes("clave"));
-        const articuloKey = Object.keys(row).find((k) => /^(articulo|artículo|articulos|artículos|descripcion|descripción|producto)$/i.test(k.trim()))
-            || Object.keys(row).find((k) => k.toLowerCase().includes("articulo"));
+        const keysRow = Object.keys(row);
+        const claveKey = colClaveExistencias(keysRow);
+        const articuloKey = colArticuloExistencias(keysRow);
 
         if (!claveKey || !articuloKey) return;
 
         const clave = cleanClave(row[claveKey]);
         const articulo = String(row[articuloKey]).trim();
 
-        if (!clave || clave === "000XXX" || clave.toLowerCase().includes("clave")) return;
+        if (esClaveIgnoradaExistencias(clave)) return;
 
         const ventasDelProducto = diccionarioVentas[clave] || { maxSucursal: "", maxVentas: 0, totalGlobal: 0, sucursales: {} };
 
