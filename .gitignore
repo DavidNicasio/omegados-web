@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Entorno y editor
+venv/
+.idea/
+__pycache__/
+*.pyc
