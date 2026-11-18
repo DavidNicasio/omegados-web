@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Home, Upload, Bell, Package } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatearFechaCorta } from "../lib/utils";
 import { useAppContext } from "../AppContext";
+import { alertasHechasVacias, contarPendientes } from "../lib/alertas";
 
 interface NavItem {
     id: string;
@@ -31,11 +32,14 @@ export const Sidebar: React.FC = () => {
         loadInfo,
         setLoadInfo,
         setHuellasVentas,
+        alertasHechas,
+        setAlertasHechas,
     } = useAppContext();
 
     const [confirmClear, setConfirmClear] = useState(false);
 
     const hasData = !!masterData && masterData.length > 0;
+    const pendientes = useMemo(() => contarPendientes(alerts, alertasHechas).total, [alerts, alertasHechas]);
 
     const handleClear = () => {
         setMasterData(null);
@@ -43,6 +47,7 @@ export const Sidebar: React.FC = () => {
         setCols([]);
         setLoadInfo(null);
         setHuellasVentas([]);
+        setAlertasHechas(alertasHechasVacias());
         setConfirmClear(false);
         setActiveView("inicio");
         toast.success("Datos borrados. Puedes cargar archivos nuevos cuando quieras.");
@@ -50,7 +55,7 @@ export const Sidebar: React.FC = () => {
 
     const renderItem = (item: NavItem) => {
         const isActive = activeView === item.id;
-        const showBadge = item.id === "alertas" && hasData && alerts.length > 0;
+        const showBadge = item.id === "alertas" && hasData && pendientes > 0;
 
         return (
             <button
@@ -67,8 +72,11 @@ export const Sidebar: React.FC = () => {
                 <item.icon className="w-5 h-5 shrink-0" aria-hidden="true" />
                 <span className="flex-1 text-left">{item.label}</span>
                 {showBadge && (
-                    <span className="min-w-[24px] px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-semibold text-center">
-                        {alerts.length.toLocaleString()}
+                    <span
+                        className="min-w-[24px] px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-semibold text-center"
+                        aria-label={`${pendientes.toLocaleString()} pendientes`}
+                    >
+                        {pendientes.toLocaleString()}
                     </span>
                 )}
             </button>

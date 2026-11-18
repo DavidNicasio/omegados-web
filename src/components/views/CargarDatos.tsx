@@ -11,6 +11,7 @@ import {
 } from "../../lib/excel";
 import { MESES } from "../../lib/constants";
 import { formatearFechaLarga, huellaArchivo, nombreSucursal } from "../../lib/utils";
+import { alertasHechasVacias } from "../../lib/alertas";
 import ActualizarSinEmpezar from "./ActualizarSinEmpezar";
 import { useAppContext } from "../../AppContext";
 
@@ -165,7 +166,7 @@ const Leyendo: React.FC<{ texto: string }> = ({ texto }) => (
 // Pantalla
 // ---------------------------------------------------------------------------
 const CargarDatos: React.FC = () => {
-    const { masterData, loadInfo, setMasterData, setAlerts, setCols, setLoadInfo, setHuellasVentas, setActiveView } =
+    const { masterData, loadInfo, setMasterData, setAlerts, setCols, setLoadInfo, setHuellasVentas, setAlertasHechas, setActiveView } =
         useAppContext();
 
     const [fileExistencias, setFileExistencias] = useState<File | null>(null);
@@ -245,6 +246,7 @@ const CargarDatos: React.FC = () => {
             setAlerts(alertas);
             setCols(rawColumns);
             setLoadInfo({ existenciasName: fileExistencias.name, ventasName: fileVentas.name, loadedAt: Date.now() });
+            setAlertasHechas(alertasHechasVacias()); // los traspasos hechos y compras pedidas eran de los datos anteriores
             // Al reemplazar los datos, la lista de archivos de ventas ya sumados empieza de nuevo
             setHuellasVentas([{ huella: huellaArchivo(fileVentas), nombre: fileVentas.name, fecha: Date.now() }]);
 

@@ -23,10 +23,17 @@ export interface ApiResponse<T> {
   data?: T;
   message?: string;
   error?: string;
+  /** true cuando no hay token configurado y no se envió nada al sistema real */
+  mock?: boolean;
 }
+
+export const MENSAJE_MODO_PRUEBA = "Modo de prueba: no se envió nada al sistema";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://api.example-inventory.com/v1";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN;
+
+/** Sin token no hay conexión real: los envíos son de prueba */
+export const MODO_PRUEBA = !API_TOKEN;
 
 /**
  * Creates common headers using the env token
@@ -84,7 +91,7 @@ export async function syncInventoryData(rows: MasterRow[]): Promise<ApiResponse<
   try {
     if (!API_TOKEN) {
       await delay(2000);
-      return { success: true, message: "Inventario sincronizado exitosamente (MOCK MODE)." };
+      return { success: true, mock: true, message: MENSAJE_MODO_PRUEBA };
     }
 
     // Simplificación: Enviar un batch de actualizaciones
@@ -147,7 +154,7 @@ export async function createTransferOrders(alerts: Alert[]): Promise<ApiResponse
 
     if (!API_TOKEN) {
       await delay(1500);
-      return { success: true, message: `${orders.length} órdenes de traspaso generadas (MOCK MODE).` };
+      return { success: true, mock: true, message: MENSAJE_MODO_PRUEBA };
     }
 
     const response = await fetch(`${API_BASE_URL}/transfers/batch`, {
@@ -165,7 +172,7 @@ export async function createTransferOrders(alerts: Alert[]): Promise<ApiResponse
         throw new Error(errorMsg);
     }
 
-    return { success: true };
+    return { success: true, message: `${orders.length} ${orders.length === 1 ? "orden de traspaso enviada" : "órdenes de traspaso enviadas"} al sistema.` };
   } catch (error: any) {
     console.error("Error creando órdenes de traspaso:", error);
     return { success: false, error: error.message || "Error al crear órdenes de traspaso en la nube" };

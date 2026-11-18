@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { MasterRow, Alert } from "./lib/excel";
+import { AlertasHechas, TipoAlertaHecha, alertasHechasVacias } from "./lib/alertas";
 
 export interface LoadInfo {
     existenciasName: string;
@@ -27,6 +28,9 @@ interface AppState {
     setLoadInfo: (info: LoadInfo | null) => void;
     huellasVentas: HuellaVentas[];
     setHuellasVentas: (h: HuellaVentas[]) => void;
+    alertasHechas: AlertasHechas;
+    setAlertasHechas: (h: AlertasHechas) => void;
+    marcarAlerta: (tipo: TipoAlertaHecha, id: string, hecha: boolean) => void;
     isDBLoaded: boolean;
 }
 
@@ -66,6 +70,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [cols, setCols] = useState<string[]>([]);
     const [loadInfo, setLoadInfo] = useState<LoadInfo | null>(null);
     const [huellasVentas, setHuellasVentas] = useState<HuellaVentas[]>([]);
+    const [alertasHechas, setAlertasHechas] = useState<AlertasHechas>(alertasHechasVacias());
     const [isDBLoaded, setIsDBLoaded] = useState(false);
 
     // Cargar datos desde la base de datos al iniciar la app
@@ -77,12 +82,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 const savedCols = await loadFromDB("cols");
                 const savedLoadInfo = await loadFromDB("loadInfo");
                 const savedHuellas = await loadFromDB("huellasVentas");
+                const savedHechas = await loadFromDB("alertasHechas");
 
                 if (savedMaster) setMasterData(savedMaster);
                 if (savedAlerts) setAlerts(savedAlerts);
                 if (savedCols) setCols(savedCols);
                 if (savedLoadInfo) setLoadInfo(savedLoadInfo);
                 if (savedHuellas) setHuellasVentas(savedHuellas);
+                if (savedHechas) setAlertasHechas(savedHechas);
             } catch (error) {
                 console.error("Error cargando la DB:", error);
             } finally {
@@ -100,8 +107,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             saveToDB("cols", cols);
             saveToDB("loadInfo", loadInfo);
             saveToDB("huellasVentas", huellasVentas);
+            saveToDB("alertasHechas", alertasHechas);
         }
-    }, [masterData, alerts, cols, loadInfo, huellasVentas, isDBLoaded]);
+    }, [masterData, alerts, cols, loadInfo, huellasVentas, alertasHechas, isDBLoaded]);
+
+    // Si una actualización hace desaparecer una ruta o una compra, olvidamos su estado de hecho/pedido
+    useEffect(() => {
+        if (!isDBLoaded) return;
+        const traspasos = new Set<string>();
+        const compras = new Set<string>();
+        alerts.forEach((a) => {
+            if (a.tipo === "TRASPASO") traspasos.add(`${a.origen}|${a.destino}`);
+            else compras.add(a.clave);
+        });
+        setAlertasHechas((prev) => {
+            const t = Object.keys(prev.traspasos).filter((id) => traspasos.has(id));
+            const c = Object.keys(prev.compras).filter((id) => compras.has(id));
+            if (t.length === Object.keys(prev.traspasos).length && c.length === Object.keys(prev.compras).length) return prev;
+            return {
+                traspasos: Object.fromEntries(t.map((id) => [id, true as const])),
+                compras: Object.fromEntries(c.map((id) => [id, true as const])),
+            };
+        });
+    }, [alerts, isDBLoaded]);
+
+    const marcarAlerta = (tipo: TipoAlertaHecha, id: string, hecha: boolean) => {
+        setAlertasHechas((prev) => {
+            const grupo = { ...prev[tipo] };
+            if (hecha) grupo[id] = true;
+            else delete grupo[id];
+            return { ...prev, [tipo]: grupo };
+        });
+    };
 
     return (
         <AppContext.Provider
@@ -118,6 +155,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 setLoadInfo,
                 huellasVentas,
                 setHuellasVentas,
+                alertasHechas,
+                setAlertasHechas,
+                marcarAlerta,
                 isDBLoaded,
             }}
         >
